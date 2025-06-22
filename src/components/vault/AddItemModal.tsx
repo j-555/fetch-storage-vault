@@ -10,6 +10,7 @@ import { open } from '@tauri-apps/plugin-dialog';
 import { listen } from '@tauri-apps/api/event';
 import { fileTypeFilters, itemTypeConfig } from '../../utils/constants';
 import { useTheme } from '../../hooks/useTheme';
+import { PasswordGeneratorModal } from './PasswordGeneratorModal';
 
 interface Tag {
   id: string;
@@ -46,6 +47,7 @@ export function AddItemModal({ isOpen, onClose, type, onSuccess, parentId, editi
   const [error, setError] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const { theme, themeVersion } = useTheme();
+  const [isPasswordGeneratorOpen, setIsPasswordGeneratorOpen] = useState(false);
 
   // if editing, derive type and initial state from editingitem because editing is fucking complicated
   useEffect(() => {
@@ -135,6 +137,13 @@ export function AddItemModal({ isOpen, onClose, type, onSuccess, parentId, editi
         const filePath = event.payload[0];
         console.log('dropped file:', filePath);
         setSelectedFile(filePath);
+        // And we do the same fucking thing for drag and drop. Luke probably would have forgotten this part.
+        const filenameWithExt = filePath.split(/[\\/]/).pop();
+        if (filenameWithExt) {
+          const lastDotIndex = filenameWithExt.lastIndexOf('.');
+          const filename = lastDotIndex > 0 ? filenameWithExt.substring(0, lastDotIndex) : filenameWithExt;
+          setName(filename);
+        }
       }
     });
 
@@ -200,6 +209,12 @@ export function AddItemModal({ isOpen, onClose, type, onSuccess, parentId, editi
 
       if (selected && typeof selected === 'string') {
         setSelectedFile(selected);
+        const filenameWithExt = selected.split(/[\\/]/).pop();
+        if (filenameWithExt) {
+          const lastDotIndex = filenameWithExt.lastIndexOf('.');
+          const filename = lastDotIndex > 0 ? filenameWithExt.substring(0, lastDotIndex) : filenameWithExt;
+          setName(filename);
+        }
         setError(null);
       }
     } catch (err) {
@@ -425,7 +440,11 @@ export function AddItemModal({ isOpen, onClose, type, onSuccess, parentId, editi
   return (
     <>
     <Transition appear show={isOpen} as={Fragment}>
-      <Dialog as="div" className="relative z-50" onClose={resetAndClose}>
+      <Dialog as="div" className="relative z-50" onClose={() => {
+        if (!isPasswordGeneratorOpen) {
+          resetAndClose();
+        }
+      }}>
         <Transition.Child
           as={Fragment}
           enter="ease-out duration-300"
@@ -507,14 +526,23 @@ export function AddItemModal({ isOpen, onClose, type, onSuccess, parentId, editi
                           <label htmlFor="password" className={`block text-sm font-medium ${getSecondaryTextColor()} mb-2`}>
                             Password
                           </label>
-                          <input 
-                            type="text" 
-                            id="password" 
-                            value={passwordData.password} 
-                            onChange={(e) => setPasswordData({...passwordData, password: e.target.value})} 
-                            className={`w-full px-3 py-2 ${getInputBackground()} rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors`}
-                            placeholder="Enter password..."
-                          />
+                          <div className="relative">
+                            <input
+                              type="password"
+                              id="password"
+                              value={passwordData.password}
+                              onChange={(e) => setPasswordData({ ...passwordData, password: e.target.value })}
+                              className={`w-full px-3 py-2 ${getInputBackground()} rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors pr-10`}
+                              placeholder="Enter password..."
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setIsPasswordGeneratorOpen(true)}
+                              className="absolute inset-y-0 right-0 px-3 flex items-center text-gray-400 hover:text-white"
+                            >
+                              <PlusIcon className="h-5 w-5" />
+                            </button>
+                          </div>
                         </div>
 
                         <div>
@@ -665,6 +693,13 @@ export function AddItemModal({ isOpen, onClose, type, onSuccess, parentId, editi
         </div>
       </Dialog>
     </Transition>
+    <PasswordGeneratorModal
+        isOpen={isPasswordGeneratorOpen}
+        onClose={() => setIsPasswordGeneratorOpen(false)}
+        onPasswordGenerated={(password) => {
+          setPasswordData({ ...passwordData, password });
+        }}
+      />
     </>
   );
 }

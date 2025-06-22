@@ -1,3 +1,5 @@
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::path::Path;
@@ -772,7 +774,7 @@ async fn get_all_tags(state: State<'_, VaultState>) -> Result<Vec<String>> {
         .collect();
     
     tags.sort_unstable();
-    tags.dedup(); // remove duplicates (no tag twins allowed!)
+    tags.dedup(); // remove duplicates (no tag twins)
     
     Ok(tags)
 }
