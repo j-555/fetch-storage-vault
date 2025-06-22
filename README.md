@@ -1,4 +1,4 @@
-# Fetch Secure Vault 🗄️
+# Fetch Storage Vault 🗄️
 
 > **Warning**: This project was built by two coders who are completely winging it and have absolutely no idea what they're doing. Proceed at your own risk.
 
