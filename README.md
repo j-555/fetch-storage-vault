@@ -108,7 +108,7 @@ While this project is full of jokes, we do take data security seriously.
 - No data is sent or stored externally — nothing leaves your machine
   
 
-**Built with ❤️ and a lot of caffeine by two developers who should probably stick to their day jobs.**
+**Built with ❤️ and a lot of substances (allegedly) by two developers who should probably stick to their day jobs.**
 
 *"it works on my machine" - jake*
 
