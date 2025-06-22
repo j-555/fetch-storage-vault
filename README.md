@@ -20,7 +20,7 @@ A secure vault application built with Tauri and React that lets you store all yo
 
 ```bash
 # Clone this repository (if you dare)
-git clone https://github.com/your-username/fetch-secure-vault.git
+git clone https://github.com/j-555/fetch-storage-vault.git
 
 # Navigate to the project directory
 cd fetch-secure-vault
@@ -104,6 +104,5 @@ Need help? Good luck with that. We barely know how this thing works ourselves.
 
 **Built with ❤️ and a lot of caffeine by two developers who should probably stick to their day jobs.**
 
-*"It works on my machine" - Jake, probably*
-
-*"What even is this code?" - Luke, definitely*
+*"it works on my machine" - jake*
+*"fixed in beta" - luke*
