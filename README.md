@@ -100,6 +100,14 @@ Need help? Good luck with that. We barely know how this thing works ourselves.
 
 ---
 
+## A More Serious Note on Security
+While this project is full of jokes, we do take data security seriously.
+- Master Passwords are hashed using Argon2, a modern and secure key derivation function
+- All sensitive data is encrypted locally using AES-256
+- Encryption and decryption happen entirely on your device
+- No data is sent or stored externally — nothing leaves your machine
+  
+
 **Built with ❤️ and a lot of caffeine by two developers who should probably stick to their day jobs.**
 
 *"it works on my machine" - jake*
