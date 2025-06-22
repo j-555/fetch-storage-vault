@@ -2,7 +2,7 @@
 
 > **Warning**: This project was built by two coders who are completely winging it and have absolutely no idea what they're doing. Proceed at your own risk.
 
-## What the hell is this?
+## What is this monstrosity?
 
 A secure vault application built with Tauri and React that lets you store all your sensitive stuff (passwords, files, secrets, your ex's phone number, etc.) in one place. Because apparently having 47 different password managers wasn't enough.
 
@@ -20,10 +20,10 @@ A secure vault application built with Tauri and React that lets you store all yo
 
 ```bash
 # Clone this repository (if you dare)
-git clone https://github.com/your-username/fetch-secure-vault.git
+git clone https://github.com/j-555/fetch-storage-vault.git
 
 # Navigate to the project directory
-cd fetch-secure-vault
+cd fetch-storage-vault
 
 # Install dependencies (pray it works)
 npm install
@@ -40,8 +40,6 @@ npm run tauri build
 ```
 
 ## The Story Behind This Mess
-
-Two developers (let's call them Jake and Luke) decided to build a secure vault application. Here's what happened:
 
 - **Day 1**: "This will be easy, we'll have it done by Friday"
 - **Day 3**: "Why is nothing working?"
@@ -102,8 +100,16 @@ Need help? Good luck with that. We barely know how this thing works ourselves.
 
 ---
 
-**Built with ❤️ and a lot of caffeine by two developers who should probably stick to their day jobs.**
+## Actual Security Disclaimer
 
-*"It works on my machine" - Jake, probably*
+- Master Passwords are hashed using Argon2, a modern and secure key derivation function
+- All sensitive data is encrypted locally using AES-256
+- Encryption and decryption happen entirely on your device
+- No data is sent or stored externally - nothing leaves your machine
 
-*"What even is this code?" - Luke, definitely*
+
+**Built with ❤️ and a lot of substances (allegedly) by two developers who should probably stick to their day jobs.**
+
+"it works on my machine" - jake
+
+"fixed in beta" - luke
