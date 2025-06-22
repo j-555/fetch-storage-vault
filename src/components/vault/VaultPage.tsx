@@ -10,7 +10,7 @@ import { getSimplifiedType } from '../../utils/helpers';
 import { AddItemModal } from './AddItemModal';
 import { useTheme } from '../../hooks/useTheme';
 
-// custom hook for debounced search (no spam allowed, you patient bastard!)
+// custom hook for debounced search (no spam allowed)
 const useDebounce = (value: string, delay: number) => {
   const [debouncedValue, setDebouncedValue] = useState(value);
 
@@ -39,14 +39,13 @@ export function VaultPage() {
   const [sortOrder, setSortOrder] = useState(sortOptions[0]);
   const [addType] = useState<'text' | 'key' | 'image' | 'video' | 'audio'>('text');
 
-  // debounced search to prevent excessive api calls (be nice to the server, you asshole!)
   const debouncedSearchQuery = useDebounce(searchTerm, 300);
 
   const [vaultView, setVaultView] = useState(() => localStorage.getItem('vaultView') || 'grid');
 
-  // pagination state (because we can't show everything at once, you greedy bastard!)
+  // pagination state (because we can't show everything at once)
   const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage] = useState(50); // show 50 items per page (not too greedy, you reasonable bastard!)
+  const [itemsPerPage] = useState(50); // show 50 items per page (not too greedy)
   const [totalItems, setTotalItems] = useState(0);
 
   const { theme, themeVersion } = useTheme();
@@ -149,6 +148,31 @@ export function VaultPage() {
     }
   };
 
+  // folders first is absolutely crucial, not dumb. luke, don't fuck this up.
+  const sortItems = (items: VaultItem[]) => {
+    const folders = items.filter(i => i.type === 'folder');
+    const files = items.filter(i => i.type !== 'folder');
+    const sortFn = (a: VaultItem, b: VaultItem) => {
+      switch (sortOrder.value) {
+        case 'NameAsc':
+          return a.name.localeCompare(b.name);
+        case 'NameDesc':
+          return b.name.localeCompare(a.name);
+        case 'CreatedAtAsc':
+          return a.created_at - b.created_at;
+        case 'CreatedAtDesc':
+          return b.created_at - a.created_at;
+        case 'UpdatedAtAsc':
+          return a.updated_at - b.updated_at;
+        case 'UpdatedAtDesc':
+          return b.updated_at - a.updated_at;
+        default:
+          return 0;
+      }
+    };
+    return [...folders.sort(sortFn), ...files.sort(sortFn)];
+  };
+
   const loadItems = async () => {
     try {
       setIsLoading(true);
@@ -185,8 +209,9 @@ export function VaultPage() {
         return true;
       });
       console.log('Filtered items:', filteredItems);
-      setItems(filteredItems);
-      setTotalItems(filteredItems.length);
+      const sortedItems = sortItems(filteredItems);
+      setItems(sortedItems);
+      setTotalItems(sortedItems.length);
     } catch (err: any) {
       console.error('Error loading items:', err);
       const errorMessage = err.message ? `${err.message}\n${err.stack}` : String(err);
@@ -199,6 +224,12 @@ export function VaultPage() {
   const handleFolderClick = (folder: VaultItem) => {
     setCurrentFolderId(folder.id);
     setBreadcrumbs([...breadcrumbs, { id: folder.id, name: folder.name }]);
+  };
+
+  // go back home you fucking idiot
+  const handleHomeClick = () => {
+    setCurrentFolderId(null);
+    setBreadcrumbs([]);
   };
 
   const handleBreadcrumbClick = (breadcrumbIndex: number) => {
@@ -223,10 +254,10 @@ export function VaultPage() {
     }
   };
 
-  // in-memory delete handler (bye bye item, you destructive bastard!)
+  // in-memory delete handler (bye bye item)
   const handleDelete = async (id: string) => {
     try {
-      await invoke('delete_item', { id }); // call backend to  make that shit disappear jake you fucking retard
+      await invoke('delete_item', { id }); // call backend to  make that shit disappear jake you fucking retard (sorry - jake)
       await handleItemsChange(); // reload items from backend refresh that shit
     } catch (err) {
       console.error('Error deleting item:', err);
@@ -286,7 +317,7 @@ export function VaultPage() {
       return 'Folder';
     }
     
-    // convert selectedType to proper display name make it look pretty, you perfectionist bastard
+    // convert selectedType to proper display name make it look pretty
     switch (selectedType) {
       case 'all':
         return 'All Items';
@@ -307,13 +338,13 @@ export function VaultPage() {
     }
   };
 
-  // page logic (math is fun, you nerd bastard!)
+  // page logic (math is fun)
   const totalPages = Math.ceil(totalItems / itemsPerPage);
   const startIndex = (currentPage - 1) * itemsPerPage;
   const endIndex = startIndex + itemsPerPage;
   const currentItems = items.slice(startIndex, endIndex);
 
-  // scroll to top when changing pages (because scrolling is so last year, you lazy bastard)
+  // scroll to top when changing pages (because scrolling is so last year)
   useEffect(() => {
     window.scrollTo(0, 0);
   }, [currentPage]);
@@ -368,26 +399,35 @@ export function VaultPage() {
             
             {/* breadcrumb navigation */}
             <div className="flex items-center space-x-1">
-              {breadcrumbs.map((breadcrumb, index) => (
-                <div key={index} className="flex items-center">
-                  {index > 0 && (
-                    <ChevronRightIcon className={`h-4 w-4 mx-1 ${getSecondaryTextColor()}`} />
-                  )}
-                  <button
-                    onClick={() => handleBreadcrumbClick(index)}
-                    className={`flex items-center space-x-1 px-2 py-1 rounded-md transition-colors ${
-                      index === breadcrumbs.length - 1
-                        ? `${getTextColor()} font-medium`
-                        : `${getSecondaryTextColor()} hover:${getTextColor()} hover:bg-gray-700/50`
-                    }`}
-                  >
-                    {index === 0 ? (
-                      <HomeIcon className="h-4 w-4" />
-                    ) : null}
-                    <span className="text-sm">{breadcrumb.name}</span>
-                  </button>
-                </div>
-              ))}
+              {/* luke you silly fuck, you forgot the home button in the breadcrumbs */}
+              <nav aria-label="Breadcrumb" className="flex-1 overflow-auto text-sm text-right">
+                <ol className={`inline-flex items-center space-x-1 md:space-x-2 rtl:space-x-reverse ${getSecondaryTextColor()}`}>
+                  <li>
+                    <div className="flex items-center">
+                      <button
+                        onClick={handleHomeClick}
+                        className={`breadcrumb-button inline-flex items-center font-medium ${getTextColor()} opacity-70 hover:opacity-100 transition-opacity duration-200 focus:outline-none focus-visible:ring-0 border border-transparent`}
+                      >
+                        <HomeIcon className="w-4 h-4 mr-1.5" />
+                        Home
+                      </button>
+                    </div>
+                  </li>
+                  {breadcrumbs.map((breadcrumb, index) => (
+                    <li key={breadcrumb.id}>
+                      <div className="flex items-center">
+                        <ChevronRightIcon className="w-4 h-4 mx-1" />
+                        <button
+                          onClick={() => handleBreadcrumbClick(index)}
+                          className={`breadcrumb-button inline-flex items-center font-medium ${getTextColor()} opacity-70 hover:opacity-100 transition-opacity duration-200 focus:outline-none focus-visible:ring-0 border border-transparent`}
+                        >
+                          {breadcrumb.name}
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                </ol>
+              </nav>
             </div>
           </div>
         </div>

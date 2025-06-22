@@ -127,7 +127,7 @@ export function ItemCard({ item, onDelete, onFolderClick, onItemUpdated }: ItemC
         setEditingItem(editingItem);
         setIsEditModalOpen(true);
       } else {
-        // for other items, just open the modal because not everything needs content, you simple bastard
+        // for other items, just open the modal because not everything needs content
         console.log('Opening edit modal for non-text item:', item);
         setEditingItem(item);
         setIsEditModalOpen(true);
@@ -190,7 +190,7 @@ export function ItemCard({ item, onDelete, onFolderClick, onItemUpdated }: ItemC
       for (const file of files) {
         console.log('Uploading file:', file.name, 'to folder:', item.name);
         
-        // read the file content and create a text item or file item based on type because file types matter, you detail oriented bastard
+        // read the file content and create a text item or file item based on type because file types matter
         const reader = new FileReader();
         
         await new Promise<void>((resolve, reject) => {

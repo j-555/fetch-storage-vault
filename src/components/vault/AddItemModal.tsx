@@ -127,7 +127,7 @@ export function AddItemModal({ isOpen, onClose, type, onSuccess, parentId, editi
   // const dragCounter = useRef(0); // because drag and drop is fucking complicated
   // const [isDragOver, setIsDragOver] = useState(false); // because state management is a bitch
 
-  // listen for file drops (drag and drop is so cool, you innovative bastard!)
+  // listen for file drops (drag and drop is so cool)
   useEffect(() => {
     const unlistenPromise = listen<string[]>('tauri://file-drop', (event) => {
       console.log('file drop event:', event);

@@ -45,7 +45,7 @@ export function VideoPlayer({ videoUrl, fileName }: VideoPlayerProps) {
     }
   };
 
-  // handle scrub bar where the magic happens, you wizard bastard
+  // handle scrub bar where the magic happens
   const handleScrub = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newTime = parseFloat(e.target.value);
     if (videoRef.current) {
@@ -71,7 +71,7 @@ export function VideoPlayer({ videoUrl, fileName }: VideoPlayerProps) {
     }
   };
 
-  // handle fullscreen toggle go big or go home, you magnificent bastard
+  // handle fullscreen toggle go big or go home
   const toggleFullscreen = () => {
     if (!document.fullscreenElement) {
       containerRef.current?.requestFullscreen();
@@ -266,7 +266,7 @@ export function VideoPlayer({ videoUrl, fileName }: VideoPlayerProps) {
               </div>
             </div>
 
-            {/* fullscreen button go big or go home, you screen hogging bastard */}
+            {/* fullscreen button go big or go home */}
             <button
               onClick={toggleFullscreen}
               className="p-2 rounded transition-colors hover:bg-white/20 text-white"
