@@ -2,7 +2,7 @@
 
 > **Warning**: This project was built by two coders who are completely winging it and have absolutely no idea what they're doing. Proceed at your own risk.
 
-## What the hell is this?
+## What is this monstrosity?
 
 A secure vault application built with Tauri and React that lets you store all your sensitive stuff (passwords, files, secrets, your ex's phone number, etc.) in one place. Because apparently having 47 different password managers wasn't enough.
 
@@ -105,7 +105,7 @@ While this project is full of jokes, we do take data security seriously.
 - Master Passwords are hashed using Argon2, a modern and secure key derivation function
 - All sensitive data is encrypted locally using AES-256
 - Encryption and decryption happen entirely on your device
-- No data is sent or stored externally — nothing leaves your machine
+- No data is sent or stored externally - nothing leaves your machine
   
 
 **Built with ❤️ and a lot of substances (allegedly) by two developers who should probably stick to their day jobs.**
