@@ -41,8 +41,6 @@ npm run tauri build
 
 ## The Story Behind This Mess
 
-Two developers (let's call them Jake and Luke) decided to build a secure vault application. Here's what happened:
-
 - **Day 1**: "This will be easy, we'll have it done by Friday"
 - **Day 3**: "Why is nothing working?"
 - **Day 7**: "Let's just add more features, that'll fix the bugs"
