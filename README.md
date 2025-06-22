@@ -23,7 +23,7 @@ A secure vault application built with Tauri and React that lets you store all yo
 git clone https://github.com/j-555/fetch-storage-vault.git
 
 # Navigate to the project directory
-cd fetch-secure-vault
+cd fetch-storage-vault
 
 # Install dependencies (pray it works)
 npm install
