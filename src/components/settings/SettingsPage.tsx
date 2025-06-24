@@ -59,16 +59,27 @@ export function SettingsPage() {
     }
   };
 
-  const getBorderColor = () => {
+  const getBorder = () => {
     switch (theme) {
       case 'light':
-        return 'border-gray-300';
+        return 'border border-gray-300';
       case 'dark':
-        return 'border-gray-700/30';
+        return 'border border-gray-700';
       default:
-        return 'border-gray-700/30';
+        return 'border border-gray-700';
     }
-  };
+  }
+
+  const getHeaderBorder = () => {
+    switch (theme) {
+      case 'light':
+        return 'border-b border-gray-300';
+      case 'dark':
+        return 'border-b border-gray-700';
+      default:
+        return 'border-b border-gray-700';
+    }
+  }
 
   const getTextColor = () => {
     switch (theme) {
@@ -163,9 +174,9 @@ export function SettingsPage() {
         </div>
 
         <div className="flex flex-col md:flex-row md:space-x-8">
-            <div className={`w-full md:w-64 flex-shrink-0 mb-8 md:mb-0 ${getSidebarBackground()} rounded-lg border-2 ${getBorderColor()}`}>
+            <div className={`w-full md:w-64 flex-shrink-0 mb-8 md:mb-0 rounded-lg shadow-xl ${getSidebarBackground()} ${getBorder()}`}>
               {/* Header Section */}
-              <div className={`flex flex-col items-center justify-center h-20 px-4 border-b-2 ${getBorderColor()}`}>
+              <div className={`flex flex-col items-center justify-center h-20 px-4 ${getHeaderBorder()}`}>
                 <h2 className={`text-xl font-bold ${getTextColor()}`}>
                   Settings
                 </h2>
@@ -199,7 +210,7 @@ export function SettingsPage() {
               </div>
             </div>
 
-            <main className={`flex-1 ${getSidebarBackground()} rounded-xl border-2 ${getBorderColor()} p-2 sm:p-4`}>
+            <main className={`flex-1 rounded-lg shadow-xl ${getSidebarBackground()} ${getBorder()} p-2 sm:p-4`}>
                 {renderTabContent()}
             </main>
         </div>

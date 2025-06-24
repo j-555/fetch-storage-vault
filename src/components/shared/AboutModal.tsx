@@ -43,7 +43,7 @@ export function AboutModal({ isOpen, onClose }: AboutModalProps) {
                     </p>
                     <div className="pt-2">
                         <a 
-                            href="https://github.com/zbzyy/fetch-secure-vault"
+                            href="https://github.com/j-555/fetch-storage-vault"
                             target="_blank" 
                             rel="noopener noreferrer" 
                             className="text-indigo-400 hover:text-indigo-300 transition-colors"
