@@ -92,15 +92,15 @@ export function DeleteConfirmationModal({ isOpen, onClose, onConfirm, itemName, 
                   </div>
                   <div className="mt-3 text-center sm:ml-4 sm:mt-0 sm:text-left">
                     <Dialog.Title as="h3" className={`text-lg font-medium leading-6 ${getTextColor()}`}>
-                      Move {itemType === 'folder' ? 'Folder' : 'Item'} to Recycling Bin
+                      Delete {itemType === 'folder' ? 'Folder' : 'Item'} ({itemName})
                     </Dialog.Title>
                     <div className="mt-2">
                       <p className={`text-sm ${getSecondaryTextColor()}`}>
-                        Are you sure you want to move "{itemName}" to the recycling bin?
+                        Are you sure you want to delete "{itemName}"?
                         {itemType === 'folder' && (
-                            <span className="font-semibold text-amber-400"> This will also move all of its contents to the bin.</span>
+                            <span className="font-semibold text-red-400"> This will permanently delete the folder and all of its contents.</span>
                         )}
-                        {' '}You can restore it later from the recycling bin.
+                        {' '}This action cannot be undone.
                       </p>
                     </div>
                   </div>
@@ -112,7 +112,7 @@ export function DeleteConfirmationModal({ isOpen, onClose, onConfirm, itemName, 
                     onClick={onConfirm}
                     disabled={isLoading}
                   >
-                    {isLoading ? 'Moving...' : 'Move to Bin'}
+                    {isLoading ? 'Deleting...' : 'Delete'}
                   </button>
                   <button
                     type="button"

@@ -1,5 +1,3 @@
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
-
 use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::path::Path;
@@ -12,93 +10,12 @@ use log::{error, info, warn, debug, trace};
 use uuid::Uuid;
 use serde::{Deserialize, Serialize};
 use base64::{engine::general_purpose::STANDARD, Engine as _};
+use rand::seq::SliceRandom;
 use csv::ReaderBuilder;
 
 use fetch::crypto::{Crypto, KeyDerivationStrength};
 use fetch::error::{Error, Result};
 use fetch::storage::{Storage, VaultItem, SortOrder};
-
-use chrono::{Duration as ChronoDuration};
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct LockoutStatus {
-    pub is_locked_out: bool,
-    pub remaining_seconds: i64,
-    pub failed_attempts: u32,
-    pub max_attempts: u32,
-    pub lockout_duration_minutes: u32,
-}
-
-struct PersistentRateLimiter;
-
-impl PersistentRateLimiter {
-    fn check_and_update_lockout(storage: &Storage) -> Result<LockoutStatus> {
-        let config = storage.get_brute_force_config()?;
-
-        if !config.enabled {
-            // When disabled, only fetch failed_attempts for display purposes
-            let failed_attempts = storage.get_failed_login_attempts().unwrap_or(0);
-            return Ok(LockoutStatus {
-                is_locked_out: false,
-                remaining_seconds: 0,
-                failed_attempts,
-                max_attempts: config.max_attempts,
-                lockout_duration_minutes: config.lockout_duration_minutes,
-            });
-        }
-
-        let failed_attempts = storage.get_failed_login_attempts()?;
-        let last_failed_timestamp = storage.get_last_failed_attempt_timestamp()?;
-
-        if failed_attempts >= config.max_attempts {
-            if let Some(last_failed) = last_failed_timestamp {
-                let lockout_duration = ChronoDuration::minutes(config.lockout_duration_minutes as i64);
-                let lockout_end = last_failed + lockout_duration;
-                let now = Utc::now();
-
-                if now < lockout_end {
-                    let remaining = lockout_end - now;
-                    return Ok(LockoutStatus {
-                        is_locked_out: true,
-                        remaining_seconds: remaining.num_seconds().max(0),
-                        failed_attempts,
-                        max_attempts: config.max_attempts,
-                        lockout_duration_minutes: config.lockout_duration_minutes,
-                    });
-                } else {
-                    storage.set_failed_login_attempts(0)?;
-                    storage.set_last_failed_attempt_timestamp(None)?;
-                }
-            }
-        }
-
-        Ok(LockoutStatus {
-            is_locked_out: false,
-            remaining_seconds: 0,
-            failed_attempts: storage.get_failed_login_attempts()?,
-            max_attempts: config.max_attempts,
-            lockout_duration_minutes: config.lockout_duration_minutes,
-        })
-    }
-
-    fn record_failed_attempt(storage: &Storage) -> Result<()> {
-        let current_attempts = storage.get_failed_login_attempts()?;
-        let new_attempts = current_attempts + 1;
-
-        storage.set_failed_login_attempts(new_attempts)?;
-        storage.set_last_failed_attempt_timestamp(Some(Utc::now()))?;
-
-        info!("Recorded failed login attempt. Total attempts: {}", new_attempts);
-        Ok(())
-    }
-
-    fn reset_attempts(storage: &Storage) -> Result<()> {
-        storage.set_failed_login_attempts(0)?;
-        storage.set_last_failed_attempt_timestamp(None)?;
-        info!("Reset failed login attempts after successful authentication");
-        Ok(())
-    }
-}
 
 pub struct VaultState {
     storage: Mutex<Storage>,
@@ -113,8 +30,6 @@ pub struct AddTextItemArgs {
     tags: Vec<String>,
     #[serde(rename = "parentId")]
     parent_id: Option<String>,
-    #[serde(rename = "totpSecret")]
-    totp_secret: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -144,8 +59,6 @@ pub struct UpdateItemArgs {
     tags: Vec<String>,
     #[serde(rename = "parentId")]
     parent_id: Option<String>,
-    #[serde(rename = "totpSecret")]
-    totp_secret: Option<String>,
 }
 
 #[derive(serde::Deserialize)]
@@ -158,7 +71,6 @@ pub struct InitializeVaultArgs {
 #[derive(serde::Deserialize)]
 pub struct ExportVaultArgs {
     master_key: String,
-    format: String,
 }
 
 #[derive(serde::Deserialize)]
@@ -232,6 +144,18 @@ pub struct CsvRow {
     name_browser: Option<String>,
     #[serde(rename = "hostname")]
     hostname_browser: Option<String>,
+    #[serde(rename = "httpRealm")]
+    http_realm: Option<String>,
+    #[serde(rename = "formActionOrigin")]
+    form_action_origin: Option<String>,
+    #[serde(rename = "guid")]
+    guid: Option<String>,
+    #[serde(rename = "timeCreated")]
+    time_created: Option<String>,
+    #[serde(rename = "timeLastUsed")]
+    time_last_used: Option<String>,
+    #[serde(rename = "timePasswordChanged")]
+    time_password_changed: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -309,20 +233,12 @@ fn main() {
             initialize_vault,
             unlock_vault,
             lock_vault,
-            get_lockout_status,
-            get_brute_force_config,
-            set_brute_force_config,
-            reset_failed_attempts,
             get_vault_items,
             add_text_item,
             add_file_item,
             add_folder,
             get_item_content,
             delete_item,
-            permanently_delete_item,
-            permanently_delete_all_items,
-            restore_item,
-            get_deleted_items,
             update_master_key,
             export_decrypted_vault,
             export_encrypted_vault,
@@ -337,9 +253,6 @@ fn main() {
             get_theme,
             set_theme,
             update_item,
-            restore_item_to_root,
-            generate_totp,
-            generate_qr_code
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -411,19 +324,7 @@ async fn initialize_vault(args: InitializeVaultArgs, state: State<'_, VaultState
 #[tauri::command]
 async fn unlock_vault(master_key: String, state: State<'_, VaultState>) -> Result<()> {
     info!("Attempting to unlock vault.");
-
     let storage = state.storage.lock().unwrap();
-
-    // Security: Check persistent rate limiting
-    let lockout_status = PersistentRateLimiter::check_and_update_lockout(&storage)?;
-    if lockout_status.is_locked_out {
-        error!("Account locked due to too many failed attempts. Remaining time: {} seconds", lockout_status.remaining_seconds);
-        return Err(Error::InvalidInput(format!(
-            "Account locked due to too many failed attempts. Please wait {} minutes before trying again.",
-            (lockout_status.remaining_seconds + 59) / 60 // Round up to next minute
-        )));
-    }
-
     let mut crypto = state.crypto.lock().unwrap();
 
     let salt = storage.get_salt()?;
@@ -434,16 +335,12 @@ async fn unlock_vault(master_key: String, state: State<'_, VaultState>) -> Resul
     crypto.unlock(&derived_key)?;
 
     if crypto.decrypt(&verification_token).is_ok() {
-        // Success: Reset failed attempts
-        PersistentRateLimiter::reset_attempts(&storage)?;
         info!("Vault unlocked successfully with strength {:?}", strength);
         return Ok(());
     }
 
-    // Failed attempt: Record it
-    crypto.lock();
-    PersistentRateLimiter::record_failed_attempt(&storage)?;
     error!("Invalid master key provided during unlock attempt.");
+    crypto.lock();
     Err(Error::InvalidMasterKey)
 }
 
@@ -452,41 +349,6 @@ async fn lock_vault(state: State<'_, VaultState>) -> Result<()> {
     info!("Locking vault.");
     state.crypto.lock().unwrap().lock();
     Ok(())
-}
-
-#[tauri::command]
-async fn get_lockout_status(state: State<'_, VaultState>) -> Result<LockoutStatus> {
-    let storage = state.storage.lock().unwrap();
-    PersistentRateLimiter::check_and_update_lockout(&storage)
-}
-
-#[tauri::command]
-async fn get_brute_force_config(state: State<'_, VaultState>) -> Result<fetch::storage::BruteForceConfig> {
-    let storage = state.storage.lock().unwrap();
-    storage.get_brute_force_config()
-}
-
-#[tauri::command]
-async fn set_brute_force_config(config: fetch::storage::BruteForceConfig, state: State<'_, VaultState>) -> Result<()> {
-    info!("Setting brute force protection configuration: {:?}", config);
-    let storage = state.storage.lock().unwrap();
-    storage.set_brute_force_config(config)?;
-
-    // If brute force protection is disabled, reset any existing lockout
-    if !config.enabled {
-        storage.set_failed_login_attempts(0)?;
-        storage.set_last_failed_attempt_timestamp(None)?;
-        info!("Brute force protection disabled, reset failed attempts");
-    }
-
-    Ok(())
-}
-
-#[tauri::command]
-async fn reset_failed_attempts(state: State<'_, VaultState>) -> Result<()> {
-    info!("Manually resetting failed login attempts.");
-    let storage = state.storage.lock().unwrap();
-    PersistentRateLimiter::reset_attempts(&storage)
 }
 
 #[tauri::command]
@@ -509,34 +371,9 @@ async fn add_text_item(args: AddTextItemArgs, state: State<'_, VaultState>) -> R
     info!("Adding text item: {}", args.name);
     trace!("Received content length: {}", args.content.len());
 
-    // Security: Enhanced input validation
     if args.name.trim().is_empty() || args.content.is_empty() {
         warn!("Attempted to add text item with empty name or content.");
         return Err(Error::InvalidInput("Item name and content cannot be empty".into()));
-    }
-
-    // Security: Validate name length and characters
-    if args.name.len() > 255 {
-        return Err(Error::InvalidInput("Item name too long (max 255 characters)".into()));
-    }
-
-    // Security: Validate content size (max 10MB)
-    if args.content.len() > 10 * 1024 * 1024 {
-        return Err(Error::InvalidInput("Content too large (max 10MB)".into()));
-    }
-
-    // Security: Validate tags
-    for tag in &args.tags {
-        if tag.len() > 50 {
-            return Err(Error::InvalidInput("Tag name too long (max 50 characters)".into()));
-        }
-        if tag.contains('\0') || tag.contains('\n') || tag.contains('\r') {
-            return Err(Error::InvalidInput("Tag contains invalid characters".into()));
-        }
-    }
-
-    if args.tags.len() > 20 {
-        return Err(Error::InvalidInput("Too many tags (max 20)".into()));
     }
     
     let storage = state.storage.lock().unwrap();
@@ -561,8 +398,6 @@ async fn add_text_item(args: AddTextItemArgs, state: State<'_, VaultState>) -> R
         tags: args.tags,
         created_at: now,
         updated_at: now,
-        deleted_at: None,
-        totp_secret: args.totp_secret,
     };
 
     let encrypted_content = crypto.encrypt(args.content.as_bytes())?;
@@ -592,19 +427,9 @@ async fn add_file_item(args: AddFileItemArgs, state: State<'_, VaultState>) -> R
     }
 
     let file_path = Path::new(&args.file_path);
-
-    // Security: Validate file path to prevent directory traversal attacks
-    let canonical_path = file_path.canonicalize()
-        .map_err(|_| Error::InvalidInput("Invalid file path or file does not exist".into()))?;
-
-    // Ensure the file path doesn't contain directory traversal sequences
-    if args.file_path.contains("..") || args.file_path.contains("~") {
-        return Err(Error::InvalidInput("File path contains invalid characters".into()));
-    }
-
-    let file_content = fs::read(&canonical_path)?;
+    let file_content = fs::read(file_path)?;
     
-    let guess = mime_guess::from_path(&canonical_path).first_or_octet_stream();
+    let guess = mime_guess::from_path(file_path).first_or_octet_stream();
     let mime_type = guess.to_string();
     
     let now = Utc::now();
@@ -620,8 +445,6 @@ async fn add_file_item(args: AddFileItemArgs, state: State<'_, VaultState>) -> R
         tags: args.tags,
         created_at: now,
         updated_at: now,
-        deleted_at: None,
-        totp_secret: None, // Files don't have TOTP
     };
 
     let encrypted_content = crypto.encrypt(&file_content)?;
@@ -642,19 +465,9 @@ async fn add_file_item(args: AddFileItemArgs, state: State<'_, VaultState>) -> R
 async fn add_folder(args: AddFolderArgs, state: State<'_, VaultState>) -> Result<()> {
     info!("Adding folder: {}", args.name);
 
-    // Security: Enhanced folder validation
     if args.name.trim().is_empty() {
         warn!("Attempted to add folder with empty name.");
         return Err(Error::InvalidInput("Folder name cannot be empty".into()));
-    }
-
-    if args.name.len() > 255 {
-        return Err(Error::InvalidInput("Folder name too long (max 255 characters)".into()));
-    }
-
-    // Security: Validate folder name characters
-    if args.name.contains('\0') || args.name.contains('/') || args.name.contains('\\') {
-        return Err(Error::InvalidInput("Folder name contains invalid characters".into()));
     }
     
     let storage = state.storage.lock().unwrap();
@@ -677,8 +490,6 @@ async fn add_folder(args: AddFolderArgs, state: State<'_, VaultState>) -> Result
         tags: vec![], 
         created_at: now,
         updated_at: now,
-        deleted_at: None,
-        totp_secret: None, // Folders don't have TOTP
     };
     
     storage.add_item(&item, &crypto)?;
@@ -719,8 +530,6 @@ async fn update_item(args: UpdateItemArgs, state: State<'_, VaultState>) -> Resu
         tags: args.tags,
         created_at: existing_item.created_at, // preserve creation date
         updated_at: now,
-        deleted_at: existing_item.deleted_at,
-        totp_secret: args.totp_secret.or(existing_item.totp_secret), // Update if provided, else keep existing
     };
 
     // update the encrypted content if it's a text item
@@ -778,7 +587,7 @@ async fn get_item_content(id: String, state: State<'_, VaultState>) -> Result<Ve
 
 #[tauri::command]
 async fn delete_item(id: String, state: State<'_, VaultState>) -> Result<bool> {
-    info!("Soft deleting item with id: {}", id);
+    info!("Recursively deleting item with id: {}", id);
     let storage = state.storage.lock().unwrap();
     let crypto = state.crypto.lock().unwrap();
     if !crypto.is_unlocked() {
@@ -786,65 +595,6 @@ async fn delete_item(id: String, state: State<'_, VaultState>) -> Result<bool> {
     }
     storage.delete_item_and_descendants(&id, &crypto)?;
     Ok(true)
-}
-
-#[tauri::command]
-async fn permanently_delete_item(id: String, state: State<'_, VaultState>) -> Result<bool> {
-    info!("Permanently deleting item with id: {}", id);
-    let storage = state.storage.lock().unwrap();
-    let crypto = state.crypto.lock().unwrap();
-    if !crypto.is_unlocked() {
-        return Err(Error::VaultLocked);
-    }
-    storage.permanently_delete_item_and_descendants(&id, &crypto)?;
-    Ok(true)
-}
-
-#[tauri::command]
-async fn permanently_delete_all_items(state: State<'_, VaultState>) -> Result<bool> {
-    info!("Permanently deleting all items in recycling bin");
-    let storage = state.storage.lock().unwrap();
-    let crypto = state.crypto.lock().unwrap();
-    if !crypto.is_unlocked() {
-        return Err(Error::VaultLocked);
-    }
-    storage.permanently_delete_all_deleted_items(&crypto)?;
-    Ok(true)
-}
-
-#[tauri::command]
-async fn restore_item(id: String, state: State<'_, VaultState>) -> Result<bool> {
-    info!("Restoring item with id: {}", id);
-    let storage = state.storage.lock().unwrap();
-    if !state.crypto.lock().unwrap().is_unlocked() {
-        return Err(Error::VaultLocked);
-    }
-    storage.restore_item(&id)
-}
-
-#[tauri::command]
-async fn restore_item_to_root(id: String, state: State<'_, VaultState>) -> Result<bool> {
-    info!("Restoring item to root with id: {}", id);
-    let storage = state.storage.lock().unwrap();
-    if !state.crypto.lock().unwrap().is_unlocked() {
-        return Err(Error::VaultLocked);
-    }
-    storage.restore_item_to_root(&id)
-}
-
-#[tauri::command]
-async fn get_deleted_items(state: State<'_, VaultState>) -> Result<Vec<VaultItem>> {
-    info!("Getting all deleted items");
-    let storage = state.storage.lock().unwrap();
-    let crypto = state.crypto.lock().unwrap();
-
-    if !crypto.is_unlocked() {
-        return Err(Error::VaultLocked);
-    }
-
-    let all_items = storage.get_all_items_recursive(&crypto)?;
-    let deleted_items = all_items.into_iter().filter(|item| item.deleted_at.is_some()).collect();
-    Ok(deleted_items)
 }
 
 #[tauri::command]
@@ -900,7 +650,7 @@ async fn update_master_key(args: UpdateMasterKeyArgs, state: State<'_, VaultStat
 
 #[tauri::command]
 async fn export_decrypted_vault(args: ExportVaultArgs, state: State<'_, VaultState>) -> Result<String> {
-    info!("Exporting decrypted vault in {} format.", args.format);
+    info!("Exporting decrypted vault.");
 
     let derived_key = {
         let storage = state.storage.lock().unwrap();
@@ -924,109 +674,21 @@ async fn export_decrypted_vault(args: ExportVaultArgs, state: State<'_, VaultSta
     
     let storage = state.storage.lock().unwrap();
     let items = storage.get_all_items_recursive(&crypto)?;
-    
-    match args.format.as_str() {
-        "json" => {
-            // JSON format (pretty-printed)
-            let mut decrypted_items = Vec::new();
-            for item in items {
-                if !item.data_path.is_empty() {
-                    let content = storage.read_encrypted_file(&item.data_path, &crypto)?;
-                    let mut decrypted_item = serde_json::to_value(item)?;
-                    decrypted_item["content"] = serde_json::Value::String(STANDARD.encode(&content));
-                    decrypted_items.push(decrypted_item);
-                } else {
-                    decrypted_items.push(serde_json::to_value(item)?);
-                }
-            }
-            Ok(serde_json::to_string_pretty(&decrypted_items)?)
-        },
-        "csv" => {
-            // CSV format
-            let mut csv_output = String::new();
-            csv_output.push_str("Name,Type,Content,Tags,Created At,Updated At\n");
-            
-            for item in items {
-                let content = if !item.data_path.is_empty() {
-                    String::from_utf8_lossy(&storage.read_encrypted_file(&item.data_path, &crypto)?).to_string()
-                } else {
-                    String::new()
-                };
-                
-                let tags = item.tags.join(";");
-                let csv_line = format!(
-                    "\"{}\",\"{}\",\"{}\",\"{}\",\"{}\",\"{}\"\n",
-                    item.name.replace("\"", "\"\""),
-                    item.item_type.replace("\"", "\"\""),
-                    content.replace("\"", "\"\""),
-                    tags.replace("\"", "\"\""),
-                    item.created_at,
-                    item.updated_at
-                );
-                csv_output.push_str(&csv_line);
-            }
-            Ok(csv_output)
-        },
-        "txt" => {
-            // Plain text format
-            let mut text_output = String::new();
-            for item in items {
-                text_output.push_str(&format!("=== {} ===\n", item.name));
-                text_output.push_str(&format!("Type: {}\n", item.item_type));
-                if !item.tags.is_empty() {
-                    text_output.push_str(&format!("Tags: {}\n", item.tags.join(", ")));
-                }
-                text_output.push_str(&format!("Created: {}\n", item.created_at));
-                text_output.push_str(&format!("Updated: {}\n", item.updated_at));
-                
-                if !item.data_path.is_empty() {
-                    let encrypted_content = storage.read_encrypted_file(&item.data_path, &crypto)?;
-                    let content = String::from_utf8_lossy(&encrypted_content);
-                    text_output.push_str("\nContent:\n");
-                    text_output.push_str(&content);
-                }
-                text_output.push_str("\n\n");
-            }
-            Ok(text_output)
-        },
-        "md" => {
-            // Markdown format
-            let mut md_output = String::new();
-            md_output.push_str("# Vault Export\n\n");
-            
-            for item in items {
-                md_output.push_str(&format!("## {}\n\n", item.name));
-                md_output.push_str(&format!("**Type:** {}\n\n", item.item_type));
-                
-                if !item.tags.is_empty() {
-                    md_output.push_str("**Tags:** ");
-                    for (i, tag) in item.tags.iter().enumerate() {
-                        md_output.push_str(&format!("`{}`", tag));
-                        if i < item.tags.len() - 1 {
-                            md_output.push_str(", ");
-                        }
-                    }
-                    md_output.push_str("\n\n");
-                }
-                
-                md_output.push_str(&format!("**Created:** {}\n\n", item.created_at));
-                md_output.push_str(&format!("**Updated:** {}\n\n", item.updated_at));
-                
-                if !item.data_path.is_empty() {
-                    let encrypted_content = storage.read_encrypted_file(&item.data_path, &crypto)?;
-                    let content = String::from_utf8_lossy(&encrypted_content);
-                    md_output.push_str("### Content\n\n");
-                    md_output.push_str("```\n");
-                    md_output.push_str(&content);
-                    md_output.push_str("\n```\n\n");
-                }
-                
-                md_output.push_str("---\n\n");
-            }
-            Ok(md_output)
-        },
-        _ => Err(Error::InvalidInput("Unsupported export format".into())),
+    let mut decrypted_items = Vec::new();
+
+    for item in items {
+         if !item.data_path.is_empty() {
+            let content = storage.read_encrypted_file(&item.data_path, &crypto)?;
+            let mut decrypted_item = serde_json::to_value(item)?;
+            decrypted_item["content"] = serde_json::Value::String(STANDARD.encode(&content));
+            decrypted_items.push(decrypted_item);
+        } else {
+             decrypted_items.push(serde_json::to_value(item)?);
+        }
     }
+    
+    info!("Decrypted vault export successful.");
+    Ok(serde_json::to_string_pretty(&decrypted_items)?)
 }
 
 #[tauri::command]
@@ -1069,7 +731,7 @@ async fn export_encrypted_vault(state: State<'_, VaultState>) -> Result<Vec<u8>>
 }
 
 #[tauri::command]
-async fn delete_vault(args: DeleteVaultArgs, _app_handle: AppHandle<Wry>, state: State<'_, VaultState>) -> Result<()> {
+async fn delete_vault(args: DeleteVaultArgs, app_handle: AppHandle<Wry>, state: State<'_, VaultState>) -> Result<()> {
     info!("Starting vault deletion process.");
     
     let storage = state.storage.lock().unwrap();
@@ -1110,7 +772,7 @@ async fn get_all_tags(state: State<'_, VaultState>) -> Result<Vec<String>> {
         .collect();
     
     tags.sort_unstable();
-    tags.dedup(); // remove duplicates (no tag twins)
+    tags.dedup(); // remove duplicates (no tag twins allowed!)
     
     Ok(tags)
 }
@@ -1169,7 +831,7 @@ async fn import_csv(args: CsvImportArgs, state: State<'_, VaultState>) -> Result
     let parent_id = args.parent_id;
 
     info!("CSV content length: {} bytes", csv_content.len());
-    // Security: Never log CSV content as it may contain sensitive passwords
+    info!("CSV content preview: {}", &csv_content[..csv_content.len().min(200)]);
 
     let mut reader = ReaderBuilder::new()
         .has_headers(true)
@@ -1209,7 +871,7 @@ async fn import_csv(args: CsvImportArgs, state: State<'_, VaultState>) -> Result
                 let notes = row.comments.or(row.notes);
                 let tags = row.tags;
                 
-                info!("Processing row {}: has_title = {}, has_username = {}", row_count, title.is_some(), username.is_some());
+                info!("Processing row {}: title = {:?}, username = {:?}", row_count, title, username);
                 
                 // skip rows without a title because they're fucking stupid and useless
                 if title.is_none() || title.as_ref().unwrap().trim().is_empty() {
@@ -1240,7 +902,7 @@ async fn import_csv(args: CsvImportArgs, state: State<'_, VaultState>) -> Result
                     }
                 }
                 let content = content.trim_end().to_string();
-                info!("Created content for row {} (length: {})", row_count, content.len());
+                info!("Created content for row {}: '{}' (length: {})", row_count, content, content.len());
                 
                 // skip rows with no content
                 if content.trim().is_empty() {
@@ -1269,8 +931,6 @@ async fn import_csv(args: CsvImportArgs, state: State<'_, VaultState>) -> Result
                     tags: tags_vec,
                     created_at: Utc::now(),
                     updated_at: Utc::now(),
-                    deleted_at: None,
-                    totp_secret: None,
                 };
 
                 info!("Created vault item for row {}: {} (id: {})", row_count, item.name, item.id);
@@ -1325,62 +985,7 @@ async fn get_theme(state: State<'_, VaultState>) -> Result<String> {
 
 #[tauri::command]
 async fn set_theme(theme: String, state: State<'_, VaultState>) -> Result<()> {
-    info!("Setting theme to: {}", theme);
     let storage = state.storage.lock().unwrap();
-    storage.set_theme(&theme)
-}
-
-#[tauri::command]
-async fn generate_totp(secret: String) -> Result<String> {
-    use totp_rs::{Algorithm, TOTP};
-    info!("Generating TOTP code for secret (length: {})", secret.len());
-
-    let secret_bytes = STANDARD.decode(secret)
-        .map_err(|e| Error::Internal(format!("Failed to decode TOTP secret: {}", e)))?;
-
-    let totp = TOTP::new(
-        Algorithm::SHA1,
-        6,
-        1,
-        30,
-        secret_bytes,
-        None, // issuer - not needed for code generation
-        "".to_string(), // account name - not needed for code generation
-    ).map_err(|e| Error::Internal(format!("Failed to create TOTP instance: {}", e)))?;
-
-    let code = totp.generate_current()
-        .map_err(|e| Error::Internal(format!("Failed to generate TOTP code: {}", e)))?;
-    
-    info!("Successfully generated TOTP code.");
-    Ok(code)
-}
-
-#[tauri::command]
-async fn generate_qr_code(item_name: String, issuer: String, secret: String) -> Result<String> {
-    use totp_rs::{Algorithm, TOTP};
-    info!("Generating QR code for item: {}, issuer: {}", item_name, issuer);
-
-    let secret_bytes = STANDARD.decode(&secret) // Ensure secret is base64 decoded
-        .map_err(|e| Error::Internal(format!("Failed to decode TOTP secret for QR: {}", e)))?;
-
-    let totp = TOTP::new(
-        Algorithm::SHA1,
-        6,
-        1,
-        30,
-        secret_bytes,
-        Some(issuer),
-        item_name,
-    ).map_err(|e| Error::Internal(format!("Failed to create TOTP instance for QR: {}", e)))?;
-
-    match totp.get_qr_base64() {
-        Ok(qr_base64) => {
-            info!("Successfully generated QR code image (base64).");
-            Ok(qr_base64)
-        }
-        Err(e) => {
-            error!("Failed to generate QR code: {:?}", e);
-            Err(Error::Internal(format!("QR generation failed: {}", e)))
-        }
-    }
+    storage.set_theme(&theme)?;
+    Ok(())
 }

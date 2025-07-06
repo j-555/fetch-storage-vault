@@ -4,14 +4,13 @@ import { Dialog } from '@headlessui/react';
 interface MasterKeyModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onConfirm: (masterKey: string, ...args: any[]) => Promise<void>;
+  onConfirm: (masterKey: string) => Promise<void>;
   title: string;
   description: string;
   actionLabel: string;
-  isLoading?: boolean;
+  isLoading: boolean;
   error?: string | null;
   clearError?: () => void;
-  additionalArgs?: any[];
 }
 
 export function MasterKeyConfirmationModal({
@@ -24,40 +23,40 @@ export function MasterKeyConfirmationModal({
   isLoading,
   error: parentError,
   clearError,
-  additionalArgs = [],
 }: MasterKeyModalProps) {
   const [masterKey, setMasterKey] = useState('');
-  const [error, setError] = useState<string | null>(null);
+  const [internalError, setInternalError] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
 
+  const error = parentError || internalError;
+
   useEffect(() => {
-    if (!isOpen) {
-      setMasterKey('');
-      setError(null);
+    if (isOpen) {
+      const timer = setTimeout(() => {
+        inputRef.current?.focus();
+      }, 50);
+      return () => clearTimeout(timer);
     }
   }, [isOpen]);
 
-  useEffect(() => {
-    setError(parentError || null);
-  }, [parentError]);
-
   const handleClose = () => {
     setMasterKey('');
-    setError(null);
-    if (clearError) clearError();
+    setInternalError('');
+    clearError?.();
     onClose();
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!masterKey.trim()) return;
+    setInternalError('');
+    clearError?.();
 
-    try {
-      await onConfirm(masterKey, ...additionalArgs);
-      handleClose();
-    } catch (err) {
-      console.error('Confirmation failed:', err);
+    if (!masterKey) {
+      setInternalError('Master key is required.');
+      return;
     }
+
+    await onConfirm(masterKey);
   };
 
   const inputClasses =

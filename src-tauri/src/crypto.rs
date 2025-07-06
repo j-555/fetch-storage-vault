@@ -3,7 +3,7 @@ use aes_gcm::{
     Aes256Gcm, Key, Nonce,
 };
 use argon2::{
-    password_hash::{SaltString},
+    password_hash::{SaltString}, // removed passwordhasher
     Argon2, Params, ParamsBuilder,
 };
 use rand::{rngs::OsRng, RngCore};
@@ -40,6 +40,7 @@ impl KeyDerivationStrength {
             .map_err(|e| Error::KeyDerivation(e.to_string()))
     }
 }
+
 
 pub struct Crypto {
     cipher: Option<Aes256Gcm>,

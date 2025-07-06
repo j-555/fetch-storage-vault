@@ -35,6 +35,7 @@ export function CsvImportModal({ isOpen, onClose, onSuccess, parentId }: CsvImpo
       setCsvContent(content);
       setError(null);
       
+      // generate preview (let's see what we're working with, you data wizard!)
       const generatePreview = () => {
         try {
           const lines = content.split('\n');
@@ -107,9 +108,9 @@ export function CsvImportModal({ isOpen, onClose, onSuccess, parentId }: CsvImpo
       case 'light':
         return 'bg-white border-gray-200';
       case 'dark':
-        return 'bg-gradient-to-b from-gray-900 to-black border-gray-700';
+        return 'bg-gray-900 border-gray-700';
       default:
-        return 'bg-gradient-to-b from-gray-900 to-black border-gray-700';
+        return 'bg-gray-900 border-gray-700';
     }
   };
 

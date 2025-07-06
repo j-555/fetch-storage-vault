@@ -10,8 +10,6 @@ import { open } from '@tauri-apps/plugin-dialog';
 import { listen } from '@tauri-apps/api/event';
 import { fileTypeFilters, itemTypeConfig } from '../../utils/constants';
 import { useTheme } from '../../hooks/useTheme';
-import { PasswordGeneratorModal } from './PasswordGeneratorModal';
-import { VaultItem } from '../../types';
 
 interface Tag {
   id: string;
@@ -31,10 +29,9 @@ interface AddItemModalProps {
   onSuccess?: () => Promise<void>;
   parentId?: string | null;
   editingItem?: any;
-  allItems?: VaultItem[];
 }
 
-export function AddItemModal({ isOpen, onClose, type, onSuccess, parentId, editingItem, allItems = [] }: AddItemModalProps) {
+export function AddItemModal({ isOpen, onClose, type, onSuccess, parentId, editingItem }: AddItemModalProps) {
   const [name, setName] = useState('');
   const [content, setContent] = useState('');
   const [comments, setComments] = useState('');
@@ -49,8 +46,6 @@ export function AddItemModal({ isOpen, onClose, type, onSuccess, parentId, editi
   const [error, setError] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const { theme, themeVersion } = useTheme();
-  const [isPasswordGeneratorOpen, setIsPasswordGeneratorOpen] = useState(false);
-  const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
 
   // if editing, derive type and initial state from editingitem because editing is fucking complicated
   useEffect(() => {
@@ -58,7 +53,6 @@ export function AddItemModal({ isOpen, onClose, type, onSuccess, parentId, editi
       setName(editingItem.name || '');
       setTags((editingItem.tags || []).map((tag: string) => ({ id: crypto.randomUUID(), name: tag })));
       setSelectedFile(null); // don't prefill file because fuck that shit
-      setSelectedFolderId(editingItem.parent_id || null); // Set current folder
       
       // parse password data if it's a key item because passwords are fucking important
       if (editingItem.item_type === 'key' && editingItem.content) {
@@ -130,52 +124,10 @@ export function AddItemModal({ isOpen, onClose, type, onSuccess, parentId, editi
   const isTextItem = itemType === 'text' || itemType === 'key';
   const isKeyItem = itemType === 'key';
 
-  // Check if selecting a folder would create a circular reference
-  const wouldCreateCircularReference = (targetFolderId: string): boolean => {
-    if (!editingItem || editingItem.type !== 'folder') return false;
-
-    // Check if the target folder is a descendant of the item being edited
-    const isDescendant = (folderId: string, ancestorId: string): boolean => {
-      const folder = allItems.find(i => i.id === folderId);
-      if (!folder || !folder.parent_id) return false;
-      if (folder.parent_id === ancestorId) return true;
-      return isDescendant(folder.parent_id, ancestorId);
-    };
-
-    return isDescendant(targetFolderId, editingItem.id);
-  };
-
-  // Get available folders for the dropdown (exclude invalid options)
-  const getAvailableFolders = () => {
-    return allItems.filter(item =>
-      item.type === 'folder' &&
-      !item.deleted_at &&
-      item.id !== editingItem?.id && // Prevent moving folder into itself
-      !wouldCreateCircularReference(item.id) // Prevent circular references
-    );
-  };
-
-  // Build folder hierarchy for display
-  const buildFolderHierarchy = (folders: VaultItem[], parentId: string | null = null, depth: number = 0): Array<{folder: VaultItem, depth: number}> => {
-    const result: Array<{folder: VaultItem, depth: number}> = [];
-    const childFolders = folders.filter(f => f.parent_id === parentId);
-
-    for (const folder of childFolders) {
-      result.push({ folder, depth });
-      // Recursively add child folders
-      result.push(...buildFolderHierarchy(folders, folder.id, depth + 1));
-    }
-
-    return result;
-  };
-
-  const availableFolders = getAvailableFolders();
-  const folderHierarchy = buildFolderHierarchy(availableFolders);
-
   // const dragCounter = useRef(0); // because drag and drop is fucking complicated
   // const [isDragOver, setIsDragOver] = useState(false); // because state management is a bitch
 
-  // listen for file drops (drag and drop is so cool)
+  // listen for file drops (drag and drop is so cool, you innovative bastard!)
   useEffect(() => {
     const unlistenPromise = listen<string[]>('tauri://file-drop', (event) => {
       console.log('file drop event:', event);
@@ -183,13 +135,6 @@ export function AddItemModal({ isOpen, onClose, type, onSuccess, parentId, editi
         const filePath = event.payload[0];
         console.log('dropped file:', filePath);
         setSelectedFile(filePath);
-        // and we do the same fucking thing for drag and drop, luke probably would have forgotten this part (it still doesn't work jake so nice try retard)
-        const filenameWithExt = filePath.split(/[\\/]/).pop();
-        if (filenameWithExt) {
-          const lastDotIndex = filenameWithExt.lastIndexOf('.');
-          const filename = lastDotIndex > 0 ? filenameWithExt.substring(0, lastDotIndex) : filenameWithExt;
-          setName(filename);
-        }
       }
     });
 
@@ -255,12 +200,6 @@ export function AddItemModal({ isOpen, onClose, type, onSuccess, parentId, editi
 
       if (selected && typeof selected === 'string') {
         setSelectedFile(selected);
-        const filenameWithExt = selected.split(/[\\/]/).pop();
-        if (filenameWithExt) {
-          const lastDotIndex = filenameWithExt.lastIndexOf('.');
-          const filename = lastDotIndex > 0 ? filenameWithExt.substring(0, lastDotIndex) : filenameWithExt;
-          setName(filename);
-        }
         setError(null);
       }
     } catch (err) {
@@ -331,7 +270,7 @@ export function AddItemModal({ isOpen, onClose, type, onSuccess, parentId, editi
         await invoke('update_item', {
           args: {
             id: editingItem.id,
-            parentId: selectedFolderId, // Use the selected folder
+            parent_id: editingItem.parent_id,
             name: name.trim(),
             item_type: editingItem.item_type,
             content: finalContent,
@@ -392,7 +331,6 @@ export function AddItemModal({ isOpen, onClose, type, onSuccess, parentId, editi
     setTags([]);
     setNewTag('');
     setError(null);
-    setSelectedFolderId(null);
     onClose();
   };
 
@@ -487,11 +425,7 @@ export function AddItemModal({ isOpen, onClose, type, onSuccess, parentId, editi
   return (
     <>
     <Transition appear show={isOpen} as={Fragment}>
-      <Dialog as="div" className="relative z-50" onClose={() => {
-        if (!isPasswordGeneratorOpen) {
-          resetAndClose();
-        }
-      }}>
+      <Dialog as="div" className="relative z-50" onClose={resetAndClose}>
         <Transition.Child
           as={Fragment}
           enter="ease-out duration-300"
@@ -573,23 +507,14 @@ export function AddItemModal({ isOpen, onClose, type, onSuccess, parentId, editi
                           <label htmlFor="password" className={`block text-sm font-medium ${getSecondaryTextColor()} mb-2`}>
                             Password
                           </label>
-                          <div className="relative">
-                            <input
-                              type="password"
-                              id="password"
-                              value={passwordData.password}
-                              onChange={(e) => setPasswordData({ ...passwordData, password: e.target.value })}
-                              className={`w-full px-3 py-2 ${getInputBackground()} rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors pr-10`}
-                              placeholder="Enter password..."
-                            />
-                            <button
-                              type="button"
-                              onClick={() => setIsPasswordGeneratorOpen(true)}
-                              className="absolute inset-y-0 right-0 px-3 flex items-center text-gray-400 hover:text-white"
-                            >
-                              <PlusIcon className="h-5 w-5" />
-                            </button>
-                          </div>
+                          <input 
+                            type="text" 
+                            id="password" 
+                            value={passwordData.password} 
+                            onChange={(e) => setPasswordData({...passwordData, password: e.target.value})} 
+                            className={`w-full px-3 py-2 ${getInputBackground()} rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors`}
+                            placeholder="Enter password..."
+                          />
                         </div>
 
                         <div>
@@ -711,31 +636,6 @@ export function AddItemModal({ isOpen, onClose, type, onSuccess, parentId, editi
                     </div>
                   </div>
 
-                  {/* Folder selection dropdown - only show when editing */}
-                  {editingItem && (
-                    <div>
-                      <label htmlFor="folder-select" className={`block text-sm font-medium ${getSecondaryTextColor()} mb-2`}>
-                        Move to Folder
-                      </label>
-                      <select
-                        id="folder-select"
-                        value={selectedFolderId || ''}
-                        onChange={(e) => setSelectedFolderId(e.target.value || null)}
-                        className={`w-full px-3 py-2 ${getInputBackground()} rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors`}
-                      >
-                        <option value="">📁 Root (No folder)</option>
-                        {folderHierarchy.map(({ folder, depth }) => (
-                          <option key={folder.id} value={folder.id}>
-                            {'  '.repeat(depth)}📁 {folder.name}
-                          </option>
-                        ))}
-                      </select>
-                      <p className={`text-xs ${getSecondaryTextColor()} mt-1`}>
-                        Select a folder to move this item to, or choose "Root" to move it to the main level.
-                      </p>
-                    </div>
-                  )}
-
                   {error && (
                     <div className="p-3 bg-red-900/20 border border-red-700/30 rounded-md">
                       <p className="text-red-400 text-sm">{error}</p>
@@ -765,13 +665,6 @@ export function AddItemModal({ isOpen, onClose, type, onSuccess, parentId, editi
         </div>
       </Dialog>
     </Transition>
-    <PasswordGeneratorModal
-        isOpen={isPasswordGeneratorOpen}
-        onClose={() => setIsPasswordGeneratorOpen(false)}
-        onPasswordGenerated={(password) => {
-          setPasswordData({ ...passwordData, password });
-        }}
-      />
     </>
   );
 }

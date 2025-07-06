@@ -1,10 +1,8 @@
-import { useState, Fragment, useEffect } from 'react';
-import { LockClosedIcon, ArrowPathIcon, ChevronDownIcon, ExclamationTriangleIcon } from '@heroicons/react/24/solid';
+import { useState, Fragment } from 'react';
+import { LockClosedIcon, ArrowPathIcon, ChevronDownIcon } from '@heroicons/react/24/solid';
 import { Listbox, Transition } from '@headlessui/react';
 import { strengthOptions } from '../../utils/constants';
 import { useTheme } from '../../hooks/useTheme';
-import { useLockoutStatus } from '../../hooks/useLockoutStatus';
-import { LockoutWarning } from './LockoutWarning';
 
 interface LoginProps {
   isInitialized: boolean;
@@ -18,20 +16,7 @@ export function Login({ isInitialized, onInitialize, onLogin }: LoginProps) {
   const [strength, setStrength] = useState(strengthOptions[0]);
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [showLockoutWarning, setShowLockoutWarning] = useState(false);
   const { theme } = useTheme();
-  const {
-    isLockedOut,
-    failedAttempts,
-    maxAttempts,
-    formattedRemainingTime,
-    fetchLockoutStatus
-  } = useLockoutStatus();
-
-  // Check lockout status when component mounts and when attempting login
-  useEffect(() => {
-    fetchLockoutStatus();
-  }, [fetchLockoutStatus]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -39,41 +24,12 @@ export function Login({ isInitialized, onInitialize, onLogin }: LoginProps) {
     setIsLoading(true);
 
     try {
-      // Check lockout status before attempting login
-      await fetchLockoutStatus();
-      if (isLockedOut) {
-        setShowLockoutWarning(true);
-        setIsLoading(false);
-        return;
-      }
-
-      // Security: Input validation
-      if (!masterKey || masterKey.length < 1) {
-        setError('Master key cannot be empty');
-        setIsLoading(false);
-        return;
-      }
-
-      if (masterKey.length > 1000) {
-        setError('Master key too long');
-        setIsLoading(false);
-        return;
-      }
-
       if (!isInitialized) {
         if (masterKey !== confirmMasterKey) {
           setError('Master keys do not match');
           setIsLoading(false);
           return;
         }
-
-        // Security: Enhanced password validation for new vaults
-        if (masterKey.length < 12) {
-          setError('Master key must be at least 12 characters long');
-          setIsLoading(false);
-          return;
-        }
-
         const success = await onInitialize(masterKey, strength.id);
         if (!success) setError('Failed to initialize vault');
       } else {
@@ -229,51 +185,10 @@ export function Login({ isInitialized, onInitialize, onLogin }: LoginProps) {
 
           {error && <div className="text-red-400 text-sm text-center">{error}</div>}
 
-          {/* Failed attempts warning */}
-          {isInitialized && failedAttempts > 0 && !isLockedOut && (
-            <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-3">
-              <div className="flex items-center space-x-2">
-                <ExclamationTriangleIcon className="h-5 w-5 text-yellow-600 dark:text-yellow-400" />
-                <div className="text-sm">
-                  <span className="font-medium text-yellow-800 dark:text-yellow-200">
-                    Warning: {failedAttempts} of {maxAttempts} failed attempts
-                  </span>
-                  <p className="text-yellow-700 dark:text-yellow-300 mt-1">
-                    {maxAttempts - failedAttempts} attempts remaining before lockout
-                  </p>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Lockout status */}
-          {isLockedOut && (
-            <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-2">
-                  <ExclamationTriangleIcon className="h-5 w-5 text-red-600 dark:text-red-400" />
-                  <span className="font-medium text-red-800 dark:text-red-200">
-                    Account Locked
-                  </span>
-                </div>
-                <div className="text-lg font-mono font-bold text-red-700 dark:text-red-300">
-                  {formattedRemainingTime}
-                </div>
-              </div>
-              <p className="text-sm text-red-700 dark:text-red-300 mt-1">
-                Too many failed attempts. Please wait before trying again.
-              </p>
-            </div>
-          )}
-
           <button
             type="submit"
-            disabled={isLoading || isLockedOut}
-            className={`group relative w-full flex justify-center py-2.5 px-4 border border-transparent text-sm font-medium rounded-lg text-white transition-colors ${
-              isLockedOut
-                ? 'bg-gray-400 cursor-not-allowed'
-                : 'bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50'
-            }`}
+            disabled={isLoading}
+            className="group relative w-full flex justify-center py-2.5 px-4 border border-transparent text-sm font-medium rounded-lg text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 transition-colors"
           >
             <span className="absolute left-0 inset-y-0 flex items-center pl-3">
               {isLoading ? (
@@ -282,9 +197,7 @@ export function Login({ isInitialized, onInitialize, onLogin }: LoginProps) {
                 <LockClosedIcon className="h-5 w-5 text-indigo-500 group-hover:text-indigo-400" />
               )}
             </span>
-            {isLockedOut
-              ? `Locked (${formattedRemainingTime})`
-              : isLoading
+            {isLoading
               ? isInitialized
                 ? 'Unlocking...'
                 : 'Initializing...'
@@ -294,13 +207,6 @@ export function Login({ isInitialized, onInitialize, onLogin }: LoginProps) {
           </button>
         </form>
       </div>
-
-      {/* Lockout Warning Modal */}
-      <LockoutWarning
-        show={showLockoutWarning}
-        onClose={() => setShowLockoutWarning(false)}
-        allowReset={import.meta.env.DEV} // Only allow reset in development
-      />
     </div>
   );
 }

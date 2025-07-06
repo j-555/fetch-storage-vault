@@ -6,10 +6,9 @@ import { Login } from './components/auth/Login';
 import { useAuth } from './hooks/useAuth';
 import { ErrorPopup } from './components/auth/ErrorPopup';
 import { useTheme } from './hooks/useTheme';
-
 import './App.css';
 
-function getFormattedError(error: string): { title: string; description: string } | null {
+function getFormattedError(error: string): { title: string; description: string } {
   if (error.includes('InvalidMasterKey')) {
     return {
       title: 'Invalid Master Key',
@@ -42,32 +41,38 @@ function getFormattedError(error: string): { title: string; description: string 
     };
   }
   if (error.includes('Io')) {
+    const detail = error.split('Io: ').pop() || "Please check file permissions or disk space.";
     return {
       title: 'File System Error',
-      description: 'A file system error occurred. Please check file permissions or available disk space.',
+      description: `A file system error occurred: ${detail}`,
     };
   }
   if (error.includes('Crypto')) {
+    const detail = error.split('Crypto: ').pop() || "An encryption/decryption error occurred.";
     return {
       title: 'Encryption Error',
-      description: 'An encryption error occurred. Please try again or contact support.',
+      description: `A cryptographic error occurred: ${detail}`,
     };
   }
   if (error.includes('Storage')) {
+    const detail = error.split('Storage: ').pop() || "A database error occurred.";
     return {
       title: 'Database Error',
-      description: 'A storage error occurred. Please try again or restart the application.',
+      description: `A storage error occurred: ${detail}`,
     };
   }
   if (error.includes('Serialization')) {
+    const detail = error.split('Serialization: ').pop() || "Data formatting issue.";
     return {
       title: 'Data Error',
-      description: 'There was an issue processing data. Please try again.',
+      description: `There was an issue processing data: ${detail}`,
     };
   }
   
-  console.error('Unexpected error occurred:', error);
-  return null;
+  return {
+    title: 'An Unexpected Error Occurred',
+    description: "Something went wrong. Please check the console for more details.",
+  };
 }
 
 function App() {
@@ -82,13 +87,10 @@ function App() {
   } = useAuth();
   
   const { theme, themeVersion } = useTheme();
-  const errorInfo = getFormattedError(error || '');
-  const errorTitle = errorInfo?.title || '';
-  const errorDescription = errorInfo?.description || '';
+  const { title: errorTitle, description: errorDescription } = getFormattedError(error || '');
 
-  if (import.meta.env.DEV) {
-    console.log('App: Vault status - isInitialized:', isInitialized, 'isAuthenticated:', isAuthenticated, 'isLoading:', isLoading);
-  }
+  // what the fuck is going on here?
+  console.log('App: Vault status - isInitialized:', isInitialized, 'isAuthenticated:', isAuthenticated, 'isLoading:', isLoading);
 
   const getLoadingBackground = () => {
     switch (theme) {
@@ -119,7 +121,6 @@ function App() {
           {isAuthenticated ? (
             <>
               <Route path="/settings" element={<SettingsPage />} />
-              <Route path="/recycling-bin" element={<VaultPage showRecyclingBin />} />
               <Route path="/*" element={<VaultPage />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </>
@@ -137,8 +138,8 @@ function App() {
           )}
         </Routes>
       </div>
-      <ErrorPopup
-        show={!!error && error.trim() !== '' && !!errorInfo}
+      <ErrorPopup 
+        show={!!error}
         title={errorTitle}
         message={errorDescription}
         onClose={clearError}

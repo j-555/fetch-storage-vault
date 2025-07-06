@@ -11,10 +11,9 @@ interface ItemListProps {
   view: string;
   onFolderClick: (item: VaultItem) => void;
   onDelete: (id: string) => Promise<void>;
-  allItems?: VaultItem[];
 }
 
-export const ItemList = ({ items, onItemsChange, error, view, onFolderClick, onDelete, allItems = [] }: ItemListProps) => {
+export const ItemList = ({ items, onItemsChange, error, view, onFolderClick, onDelete }: ItemListProps) => {
     const { theme, themeVersion } = useTheme();
 
     const getTextColor = () => {
@@ -63,16 +62,21 @@ export const ItemList = ({ items, onItemsChange, error, view, onFolderClick, onD
         ? "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"
         : "flex flex-col space-y-4";
     
+    const sortedItems = [...items].sort((a, b) => {
+      if (a.type === 'folder' && b.type !== 'folder') return -1;
+      if (a.type !== 'folder' && b.type === 'folder') return 1;
+      return 0;
+    });
+
     return (
       <div className={containerClasses}>
-        {items.map((item) => (
+        {sortedItems.map((item) => (
           <ItemCard
             key={item.id}
             item={item}
             onDelete={() => onDelete(item.id)}
             onFolderClick={onFolderClick}
             onItemUpdated={onItemsChange}
-            allItems={allItems}
           />
         ))}
       </div>

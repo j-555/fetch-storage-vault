@@ -2,11 +2,10 @@ import { useNavigate } from 'react-router-dom';
 import {
   XMarkIcon,
   ShieldCheckIcon,
-  ShieldExclamationIcon,
   ArchiveBoxArrowDownIcon,
   ChartBarIcon,
   PaintBrushIcon,
-  TagIcon
+  TagIcon 
 } from '@heroicons/react/24/outline';
 import { useState } from 'react';
 import { MasterKeyConfirmationModal } from '../auth/MasterKeyConfirmationModal';
@@ -15,7 +14,6 @@ import { SuccessPopup } from './SuccessPopup';
 import { DeleteVaultModal } from './DeleteVaultModal';
 import { AppearanceSettings } from './tabs/AppearanceSettings';
 import { SecuritySettings } from './tabs/SecuritySettings';
-import { BruteForceSettings } from './tabs/BruteForceSettings';
 import { VaultManagementSettings } from './tabs/VaultManagementSettings';
 import { VaultStats } from './tabs/VaultStats';
 import { TagManagementSettings } from './tabs/TagManagementSettings';
@@ -24,7 +22,7 @@ import { useVaultManagement } from '../../hooks/useVaultManagement';
 import { useVaultStats } from '../../hooks/useVaultStats';
 import { useTheme } from '../../hooks/useTheme';
 
-type Tab = 'appearance' | 'security' | 'bruteforce' | 'management' | 'stats' | 'tags';
+type Tab = 'appearance' | 'security' | 'management' | 'stats' | 'tags';
 
 export function SettingsPage() {
   const navigate = useNavigate();
@@ -38,8 +36,6 @@ export function SettingsPage() {
   const [isUpdateKeyModalOpen, setIsUpdateKeyModalOpen] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [isDeleteVaultModalOpen, setIsDeleteVaultModalOpen] = useState(false);
-  const [exportFormat, setExportFormat] = useState<string>('json');
-  const [vaultUpdated, setVaultUpdated] = useState(false);
   
   const getBackgroundClass = () => {
     switch (theme) {
@@ -63,27 +59,16 @@ export function SettingsPage() {
     }
   };
 
-  const getBorder = () => {
+  const getBorderColor = () => {
     switch (theme) {
       case 'light':
-        return 'border border-gray-300';
+        return 'border-gray-300';
       case 'dark':
-        return 'border border-gray-700';
+        return 'border-gray-700/30';
       default:
-        return 'border border-gray-700';
+        return 'border-gray-700/30';
     }
-  }
-
-  const getHeaderBorder = () => {
-    switch (theme) {
-      case 'light':
-        return 'border-b border-gray-300';
-      case 'dark':
-        return 'border-b border-gray-700';
-      default:
-        return 'border-b border-gray-700';
-    }
-  }
+  };
 
   const getTextColor = () => {
     switch (theme) {
@@ -143,26 +128,18 @@ export function SettingsPage() {
         case 'appearance':
             return <AppearanceSettings key={themeVersion} />;
         case 'security':
-            return <SecuritySettings
-                        onUpdateKey={() => setIsUpdateKeyModalOpen(true)}
-                        requireKeyOnAccess={requireKeyOnAccess.value}
-                        setRequireKeyOnAccess={requireKeyOnAccess.setValue}
-                        autoLock={autoLock.value}
-                        setAutoLock={autoLock.setValue}
-                        onOpenVaultItem={handleOpenVaultItem}
-                        vaultUpdated={vaultUpdated}
+            return <SecuritySettings 
+                        onUpdateKey={() => setIsUpdateKeyModalOpen(true)} 
+                        requireKeyOnAccess={requireKeyOnAccess.value} 
+                        setRequireKeyOnAccess={requireKeyOnAccess.setValue} 
+                        autoLock={autoLock.value} 
+                        setAutoLock={autoLock.setValue} 
                     />;
-        case 'bruteforce':
-            return <BruteForceSettings />;
         case 'management':
             return <VaultManagementSettings 
                         onExportEncrypted={vaultManagement.handleExportEncrypted} 
-                        onExportDecrypted={(format) => {
-                            setExportFormat(format || 'json');
-                            setIsExportModalOpen(true);
-                        }} 
+                        onExportDecrypted={() => setIsExportModalOpen(true)} 
                         onDeleteVault={() => setIsDeleteVaultModalOpen(true)} 
-                        onVaultUpdated={handleVaultUpdated}
                     />;
         case 'stats':
             return <VaultStats stats={stats} />;
@@ -172,19 +149,6 @@ export function SettingsPage() {
             return null;
     }
 }
-
-  // Function to handle opening vault items from security settings
-  const handleOpenVaultItem = (itemName: string) => {
-    // Navigate to vault with search term for the specific item
-    navigate(`/?search=${encodeURIComponent(itemName)}`);
-  };
-
-  // Function to handle vault updates (called after cleanup operations)
-  const handleVaultUpdated = () => {
-    setVaultUpdated(true);
-    // Reset the flag after a short delay
-    setTimeout(() => setVaultUpdated(false), 1000);
-  };
 
   return (
     <div key={themeVersion} className={`min-h-screen ${getBackgroundClass()}`}>
@@ -199,9 +163,9 @@ export function SettingsPage() {
         </div>
 
         <div className="flex flex-col md:flex-row md:space-x-8">
-            <div className={`w-full md:w-64 flex-shrink-0 mb-8 md:mb-0 rounded-lg shadow-xl ${getSidebarBackground()} ${getBorder()}`}>
+            <div className={`w-full md:w-64 flex-shrink-0 mb-8 md:mb-0 ${getSidebarBackground()} rounded-lg border-2 ${getBorderColor()}`}>
               {/* Header Section */}
-              <div className={`flex flex-col items-center justify-center h-20 px-4 ${getHeaderBorder()}`}>
+              <div className={`flex flex-col items-center justify-center h-20 px-4 border-b-2 ${getBorderColor()}`}>
                 <h2 className={`text-xl font-bold ${getTextColor()}`}>
                   Settings
                 </h2>
@@ -219,7 +183,6 @@ export function SettingsPage() {
                   </div>
                   <div className="space-y-1">
                     <SettingsNavButton id="security" name="Security" icon={ShieldCheckIcon} />
-                    <SettingsNavButton id="bruteforce" name="Brute Force Protection" icon={ShieldExclamationIcon} />
                     <SettingsNavButton id="management" name="Vault Management" icon={ArchiveBoxArrowDownIcon} />
                   </div>
                 </div>
@@ -236,7 +199,7 @@ export function SettingsPage() {
               </div>
             </div>
 
-            <main className={`flex-1 rounded-lg shadow-xl ${getSidebarBackground()} ${getBorder()} p-2 sm:p-4`}>
+            <main className={`flex-1 ${getSidebarBackground()} rounded-xl border-2 ${getBorderColor()} p-2 sm:p-4`}>
                 {renderTabContent()}
             </main>
         </div>
@@ -259,14 +222,14 @@ export function SettingsPage() {
           onClose={() => setIsExportModalOpen(false)}
           onConfirm={async (key) => {
               try {
-                  const success = await vaultManagement.handleExportDecrypted(key, exportFormat);
+                  const success = await vaultManagement.handleExportDecrypted(key);
                   if (success) setIsExportModalOpen(false);
               } catch (e) {
                     console.error("Export failed:", e);
               }
           }}
           title="Confirm Decrypted Export"
-          description="This will export your vault data in an unencrypted format. Please enter your master key to proceed."
+          description="This will export all your vault data as an unencrypted JSON file. Please enter your master key to proceed."
           actionLabel="Confirm & Export"
           isLoading={vaultManagement.isLoading}
           error={vaultManagement.error}

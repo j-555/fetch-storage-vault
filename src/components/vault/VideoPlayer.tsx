@@ -30,7 +30,7 @@ export function VideoPlayer({ videoUrl, fileName }: VideoPlayerProps) {
   const formatTime = (time: number) => {
     const minutes = Math.floor(time / 60);
     const seconds = Math.floor(time % 60);
-    return `${minutes}:${seconds.toString().padStart(2, '0')}`; // chatgpt would have done better than this but just leave it because it works
+    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
   };
 
   // handle play/pause the fucking core functionality
@@ -45,7 +45,7 @@ export function VideoPlayer({ videoUrl, fileName }: VideoPlayerProps) {
     }
   };
 
-  // handle scrub bar where the magic happens
+  // handle scrub bar where the magic happens, you wizard bastard
   const handleScrub = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newTime = parseFloat(e.target.value);
     if (videoRef.current) {
@@ -71,7 +71,7 @@ export function VideoPlayer({ videoUrl, fileName }: VideoPlayerProps) {
     }
   };
 
-  // handle fullscreen toggle go big or go home
+  // handle fullscreen toggle go big or go home, you magnificent bastard
   const toggleFullscreen = () => {
     if (!document.fullscreenElement) {
       containerRef.current?.requestFullscreen();
@@ -95,7 +95,7 @@ export function VideoPlayer({ videoUrl, fileName }: VideoPlayerProps) {
       if (isPlaying) {
         setShowControls(false);
       }
-    }, 3000); // chatgpt would have done better than this but just leave it because it works
+    }, 3000);
   };
 
   // update current time and handle events the event listener hell
@@ -266,7 +266,7 @@ export function VideoPlayer({ videoUrl, fileName }: VideoPlayerProps) {
               </div>
             </div>
 
-            {/* fullscreen button go big or go home */}
+            {/* fullscreen button go big or go home, you screen hogging bastard */}
             <button
               onClick={toggleFullscreen}
               className="p-2 rounded transition-colors hover:bg-white/20 text-white"

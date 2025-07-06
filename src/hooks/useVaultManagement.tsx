@@ -22,30 +22,16 @@ export function useVaultManagement() {
         }
     };
     
-    const handleExportDecrypted = async (masterKey: string, format: string = 'json') => {
+    const handleExportDecrypted = async (masterKey: string) => {
         setIsLoading(true);
         setError(null);
         try {
-            const content = await invoke<string>('export_decrypted_vault', { 
-                args: {
-                    master_key: masterKey,
-                    format
-                }
-            });
-            
-            // Set the correct MIME type based on the format
-            const mimeTypes: { [key: string]: string } = {
-                json: 'application/json',
-                csv: 'text/csv',
-                txt: 'text/plain',
-                md: 'text/markdown'
-            };
-            
-            const blob = new Blob([content], { type: mimeTypes[format] || 'text/plain' });
+            const json = await invoke<string>('export_decrypted_vault', { master_key: masterKey });
+            const blob = new Blob([json], { type: 'application/json' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = `fetch-vault-export-${Date.now()}.${format}`;
+            a.download = `fetch-vault-decrypted-export-${Date.now()}.json`;
             a.click();
             URL.revokeObjectURL(url);
             setIsLoading(false);

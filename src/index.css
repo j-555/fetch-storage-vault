@@ -127,10 +127,6 @@ button {
   @apply transition-all duration-200;
 }
 
-.breadcrumb-button:hover {
-  border-color: transparent !important;
-}
-
 .hover-card {
   @apply transition-all duration-200 hover:shadow-lg hover:scale-[1.02];
 }

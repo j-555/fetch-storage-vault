@@ -18,24 +18,3 @@ export const getExtensionFromMime = (mime_type: string) => {
 export const cleanUrlForDisplay = (url: string): string => {
     return url.replace(/https?:\/\//g, '').replace(/www\./g, '');
 };
-
-export const getItemPath = (item: VaultItem, allItems: VaultItem[]): string => {
-    const pathParts: string[] = [];
-    let currentItem: VaultItem | undefined = item;
-
-    while (currentItem && currentItem.parent_id) {
-        const parent = allItems.find(i => i.id === currentItem!.parent_id);
-        if (parent) {
-            pathParts.unshift(parent.name);
-            currentItem = parent;
-        } else {
-            break;
-        }
-    }
-
-    if (pathParts.length === 0) {
-        return "/vault";
-    }
-
-    return `/vault/${pathParts.join('/')}`;
-};
