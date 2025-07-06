@@ -75,3 +75,5 @@ export const itemTypeConfig = {
         bgColor: 'bg-pink-500/10'
     }
 };
+
+export const ISSUER_NAME = "fetch-storage";

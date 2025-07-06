@@ -5,9 +5,10 @@ import {
   TrashIcon,
   ArrowDownTrayIcon,
   PencilIcon,
+  ClockIcon,
 } from '@heroicons/react/24/outline';
 import { ItemDetailsModal } from './ItemDetailsModal';
-import { DeleteConfirmationModal } from './DeleteConfirmationModal'; 
+import { DeleteConfirmationModal } from './DeleteConfirmationModal';
 import { VaultItem } from '../../types';
 import { typeIcons } from '../../utils/constants';
 import { getExtensionFromMime, cleanUrlForDisplay } from '../../utils/helpers';
@@ -19,9 +20,10 @@ interface ItemCardProps {
   onDelete: () => Promise<void>;
   onFolderClick: (item: VaultItem) => void;
   onItemUpdated: () => Promise<void>;
+  allItems?: VaultItem[];
 }
 
-export function ItemCard({ item, onDelete, onFolderClick, onItemUpdated }: ItemCardProps) {
+export function ItemCard({ item, onDelete, onFolderClick, onItemUpdated, allItems = [] }: ItemCardProps) {
   const { theme, themeVersion } = useTheme();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -31,6 +33,7 @@ export function ItemCard({ item, onDelete, onFolderClick, onItemUpdated }: ItemC
   const [editingItem, setEditingItem] = useState<any>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [isMoving, setIsMoving] = useState(false);
 
   // prevent default drag behavior globally because browsers are fucking stupid
   useEffect(() => {
@@ -127,7 +130,7 @@ export function ItemCard({ item, onDelete, onFolderClick, onItemUpdated }: ItemC
         setEditingItem(editingItem);
         setIsEditModalOpen(true);
       } else {
-        // for other items, just open the modal because not everything needs content, you simple bastard
+        // for other items, just open the modal because not everything needs content
         console.log('Opening edit modal for non-text item:', item);
         setEditingItem(item);
         setIsEditModalOpen(true);
@@ -141,10 +144,20 @@ export function ItemCard({ item, onDelete, onFolderClick, onItemUpdated }: ItemC
     }
   };
 
-  // drag and drop handlers for folders because folders are special little snowflakes
+  // drag and drop handlers for folders and items
   const handleDragStart = (e: React.DragEvent) => {
-    // prevent text selection when dragging because text selection is fucking annoying
-    e.preventDefault();
+    if (item.type !== 'folder') {
+      // For non-folder items, set up drag data
+      e.dataTransfer.setData('application/vault-item', JSON.stringify({
+        id: item.id,
+        name: item.name,
+        type: item.type
+      }));
+      e.dataTransfer.effectAllowed = 'move';
+    } else {
+      // prevent text selection when dragging folders
+      e.preventDefault();
+    }
   };
 
   const handleDragEnter = (e: React.DragEvent) => {
@@ -173,13 +186,107 @@ export function ItemCard({ item, onDelete, onFolderClick, onItemUpdated }: ItemC
     }
   };
 
+  // Check if moving an item would create a circular reference
+  const wouldCreateCircularReference = (itemId: string, targetFolderId: string): boolean => {
+    // If the item being moved is not a folder, it can't create circular references
+    const movingItem = allItems.find(i => i.id === itemId);
+    if (!movingItem || movingItem.type !== 'folder') return false;
+
+    // Check if the target folder is a descendant of the item being moved
+    const isDescendant = (folderId: string, ancestorId: string): boolean => {
+      const folder = allItems.find(i => i.id === folderId);
+      if (!folder || !folder.parent_id) return false;
+      if (folder.parent_id === ancestorId) return true;
+      return isDescendant(folder.parent_id, ancestorId);
+    };
+
+    return isDescendant(targetFolderId, itemId);
+  };
+
+  const handleVaultItemDrop = async (vaultItemData: string) => {
+    try {
+      const draggedItem = JSON.parse(vaultItemData);
+
+      // Prevent dropping item into itself
+      if (draggedItem.id === item.id) {
+        setError('Cannot move item into itself');
+        return;
+      }
+
+      // Check for circular references (folders into their descendants)
+      if (wouldCreateCircularReference(draggedItem.id, item.id)) {
+        setError('Cannot move folder into its own subfolder');
+        return;
+      }
+
+      // Find the full item data from allItems
+      const fullItem = allItems.find(i => i.id === draggedItem.id);
+      if (!fullItem) {
+        console.error('Could not find item data for:', draggedItem.id);
+        setError('Item not found');
+        return;
+      }
+
+      // Check if item is already in this folder
+      if (fullItem.parent_id === item.id) {
+        setError('Item is already in this folder');
+        return;
+      }
+
+      setIsMoving(true);
+      setError(null);
+
+      console.log(`Moving item "${draggedItem.name}" to folder "${item.name}"`);
+
+      // Get the item's current content if it's a text/key item
+      let content = '';
+      if (fullItem.type === 'text' || fullItem.type === 'key') {
+        try {
+          const contentBytes = await invoke<number[]>('get_item_content', { id: fullItem.id });
+          content = new TextDecoder().decode(new Uint8Array(contentBytes));
+        } catch (err) {
+          console.warn('Could not get item content, using empty string:', err);
+        }
+      }
+
+      // Call the backend to move the item
+      await invoke('update_item', {
+        args: {
+          id: fullItem.id,
+          parentId: item.id, // Move to this folder
+          name: fullItem.name,
+          item_type: fullItem.item_type,
+          content: content,
+          tags: fullItem.tags,
+        },
+      });
+
+      // Refresh the items list
+      await onItemUpdated();
+
+    } catch (err) {
+      console.error('Error moving item:', err);
+      setError('Failed to move item');
+    } finally {
+      setIsMoving(false);
+    }
+  };
+
   const handleDrop = async (e: React.DragEvent) => {
     if (item.type !== 'folder') return;
-    
+
     e.preventDefault();
     e.stopPropagation();
     setIsDragOver(false);
-    
+
+    // Check if we're dropping a vault item
+    const vaultItemData = e.dataTransfer.getData('application/vault-item');
+    if (vaultItemData) {
+      await handleVaultItemDrop(vaultItemData);
+      return;
+    }
+
+    // Handle file uploads
     const files = Array.from(e.dataTransfer.files);
     if (files.length === 0) return;
 
@@ -190,7 +297,7 @@ export function ItemCard({ item, onDelete, onFolderClick, onItemUpdated }: ItemC
       for (const file of files) {
         console.log('Uploading file:', file.name, 'to folder:', item.name);
         
-        // read the file content and create a text item or file item based on type because file types matter, you detail oriented bastard
+        // read the file content and create a text item or file item based on type because file types matter
         const reader = new FileReader();
         
         await new Promise<void>((resolve, reject) => {
@@ -331,14 +438,14 @@ export function ItemCard({ item, onDelete, onFolderClick, onItemUpdated }: ItemC
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
-        draggable={false}
+        draggable={item.type !== 'folder'}
       >
         {/* drag over overlay for folders */}
         {isDragOver && item.type === 'folder' && (
           <div className="absolute inset-0 bg-green-500/10 rounded-xl flex items-center justify-center z-10">
             <div className="text-center">
-              <div className="text-green-500 font-medium text-sm">Drop files here</div>
-              <div className="text-green-400 text-xs">Files will be added to this folder</div>
+              <div className="text-green-500 font-medium text-sm">Drop here</div>
+              <div className="text-green-400 text-xs">Move items or add files to this folder</div>
             </div>
           </div>
         )}
@@ -352,6 +459,16 @@ export function ItemCard({ item, onDelete, onFolderClick, onItemUpdated }: ItemC
             </div>
           </div>
         )}
+
+        {/* moving indicator */}
+        {isMoving && (
+          <div className="absolute inset-0 bg-purple-500/10 rounded-xl flex items-center justify-center z-10">
+            <div className="text-center">
+              <div className="text-purple-500 font-medium text-sm">Moving...</div>
+              <div className="text-purple-400 text-xs">Please wait</div>
+            </div>
+          </div>
+        )}
         
         <div className="flex items-start space-x-3">
           <div className={`p-2 rounded-lg ${isFolder ? 'bg-amber-600/20' : 'bg-indigo-600/20'}`}>
@@ -359,8 +476,13 @@ export function ItemCard({ item, onDelete, onFolderClick, onItemUpdated }: ItemC
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center justify-between">
-              <p className={`text-sm font-medium ${getTextColor()} truncate`}>{displayName}</p>
-              <div className="flex items-center space-x-2 ml-2">
+              <div className="flex items-center min-w-0">
+                <p className={`text-sm font-medium ${getTextColor()} truncate`}>{displayName}</p>
+                {item.totp_secret && !isFolder && (
+                  <ClockIcon className="h-3.5 w-3.5 text-sky-400 ml-1.5 flex-shrink-0" title="One-Time Password Enabled" />
+                )}
+              </div>
+              <div className="flex items-center space-x-2 ml-2 flex-shrink-0">
                 {!isFolder && (
                     <button
                         onClick={handleDownload}
@@ -447,6 +569,7 @@ export function ItemCard({ item, onDelete, onFolderClick, onItemUpdated }: ItemC
           await onItemUpdated();
         }}
         editingItem={editingItem}
+        allItems={allItems}
       />
     </>
   );

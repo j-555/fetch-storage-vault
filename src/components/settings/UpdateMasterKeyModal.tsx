@@ -38,8 +38,31 @@ export function UpdateMasterKeyModal({ isOpen, onClose, onConfirm, isLoading, er
       setValidationError("The new master keys do not match.");
       return;
     }
-    if (newKey.length < 8) {
-        setValidationError("The new key must be at least 8 characters long.");
+    // Security: Enhanced password validation
+    if (newKey.length < 12) {
+        setValidationError("The new key must be at least 12 characters long.");
+        return;
+    }
+
+    // Check for password complexity
+    const hasUpperCase = /[A-Z]/.test(newKey);
+    const hasLowerCase = /[a-z]/.test(newKey);
+    const hasNumbers = /\d/.test(newKey);
+    const hasSpecialChar = /[!@#$%^&*(),.?":{}|<>]/.test(newKey);
+
+    if (!hasUpperCase || !hasLowerCase || !hasNumbers || !hasSpecialChar) {
+        setValidationError("Password must contain uppercase, lowercase, numbers, and special characters.");
+        return;
+    }
+
+    // Check for common weak patterns
+    if (/(.)\1{2,}/.test(newKey)) {
+        setValidationError("Password cannot contain repeated characters (e.g., 'aaa').");
+        return;
+    }
+
+    if (/123|abc|qwe|password|admin/i.test(newKey)) {
+        setValidationError("Password cannot contain common patterns or words.");
         return;
     }
     
@@ -61,7 +84,7 @@ export function UpdateMasterKeyModal({ isOpen, onClose, onConfirm, isLoading, er
       <div className="fixed inset-0 bg-black/75" />
       <div className="fixed inset-0 overflow-y-auto">
         <div className="flex min-h-full items-center justify-center p-4">
-          <Dialog.Panel className="w-full max-w-md transform rounded-2xl bg-gray-800/50 backdrop-blur-sm border border-gray-700/50 p-6 shadow-xl transition-all">
+          <Dialog.Panel className="w-full max-w-md transform rounded-2xl bg-gradient-to-b from-gray-900 to-black backdrop-blur-sm border border-gray-700/50 p-6 shadow-xl transition-all">
             <div className="flex items-center space-x-3 mb-4">
               <KeyIcon className="h-6 w-6 text-indigo-400" />
               <Dialog.Title className="text-lg font-medium text-white">
