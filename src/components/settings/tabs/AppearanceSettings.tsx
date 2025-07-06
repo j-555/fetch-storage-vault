@@ -21,7 +21,7 @@ export const AppearanceSettings = () => {
   // force re-render when theme changes because react is fucking weird
   useEffect(() => {
     console.log('AppearanceSettings: Theme changed to', theme);
-  }, [theme, themeVersion]);
+  }, [theme, themeVersion]); // chatgpt would have done better than this but just leave it because it works
 
   const getTextColor = () => {
     switch (theme) {

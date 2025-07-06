@@ -9,7 +9,9 @@ export interface VaultItem {
     tags: string[];
     created_at: number;
     updated_at: number;
-    type: 'text' | 'key' | 'image' | 'video' | 'audio' | 'folder'; 
+    deleted_at?: number | null;
+    type: 'text' | 'key' | 'image' | 'video' | 'audio' | 'folder';
+    totp_secret?: string;
 }
 
 export interface RawBackendItem {
@@ -22,6 +24,8 @@ export interface RawBackendItem {
     tags: string[];
     created_at: string;
     updated_at: string;
+    deleted_at?: string | null;
+    totp_secret?: string;
 }
 
 export interface Breadcrumb {
@@ -31,6 +35,14 @@ export interface Breadcrumb {
 
 export interface BruteForceConfig {
     enabled: boolean;
+    max_attempts: number;
+    lockout_duration_minutes: number;
+}
+
+export interface LockoutStatus {
+    is_locked_out: boolean;
+    remaining_seconds: number;
+    failed_attempts: number;
     max_attempts: number;
     lockout_duration_minutes: number;
 }

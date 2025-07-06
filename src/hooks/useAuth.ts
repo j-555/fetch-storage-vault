@@ -1,5 +1,22 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+
+// Function to check if an error should be shown to the user
+function shouldShowError(error: string): boolean {
+  const knownErrors = [
+    'InvalidMasterKey',
+    'VaultAlreadyInitialized',
+    'ItemNotFound',
+    'VaultLocked',
+    'InvalidInput',
+    'Io',
+    'Crypto',
+    'Storage',
+    'Serialization'
+  ];
+
+  return knownErrors.some(knownError => error.includes(knownError));
+}
 
 declare global {
   interface Window {
@@ -14,6 +31,7 @@ export function useAuth() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const clearTimeoutRef = useRef<number | null>(null);
 
   useEffect(() => {
     checkVaultStatus();
@@ -26,7 +44,12 @@ export function useAuth() {
       const initialized = await invoke<boolean>('is_vault_initialized');
       setIsInitialized(initialized);
     } catch (err) {
-      setError(String(err));
+      const errorString = String(err);
+      if (shouldShowError(errorString)) {
+        setError(errorString);
+      } else {
+        console.error('Unexpected error during vault status check:', errorString);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -42,7 +65,14 @@ export function useAuth() {
       setIsAuthenticated(true);
       return true;
     } catch (err) {
-      setError(String(err));
+      const errorString = String(err);
+      // Only set error if we're not in the middle of clearing AND it's a known error
+      if (!clearTimeoutRef.current && shouldShowError(errorString)) {
+        setError(errorString);
+      } else if (!shouldShowError(errorString)) {
+        // Log unexpected errors to console instead of showing popup
+        console.error('Unexpected error during vault initialization:', errorString);
+      }
       return false;
     } finally {
       setIsLoading(false);
@@ -58,7 +88,14 @@ export function useAuth() {
       setIsAuthenticated(true);
       return true;
     } catch (err) {
-      setError(String(err));
+      const errorString = String(err);
+      // Only set error if we're not in the middle of clearing AND it's a known error
+      if (!clearTimeoutRef.current && shouldShowError(errorString)) {
+        setError(errorString);
+      } else if (!shouldShowError(errorString)) {
+        // Log unexpected errors to console instead of showing popup
+        console.error('Unexpected error during login:', errorString);
+      }
       return false;
     } finally {
       setIsLoading(false);
@@ -74,7 +111,12 @@ export function useAuth() {
       setIsAuthenticated(false);
       return true;
     } catch (err) {
-      setError(String(err));
+      const errorString = String(err);
+      if (shouldShowError(errorString)) {
+        setError(errorString);
+      } else {
+        console.error('Unexpected error during logout:', errorString);
+      }
       return false;
     } finally {
       setIsLoading(false);
@@ -82,7 +124,18 @@ export function useAuth() {
   };
 
   const clearError = () => {
+    // Clear any pending error timeout
+    if (clearTimeoutRef.current) {
+      clearTimeout(clearTimeoutRef.current);
+      clearTimeoutRef.current = null;
+    }
+
     setError(null);
+
+    // Prevent immediate error re-setting for a brief moment
+    clearTimeoutRef.current = setTimeout(() => {
+      clearTimeoutRef.current = null;
+    }, 100);
   };
 
   const refreshVaultStatus = async () => {

@@ -6,7 +6,7 @@ export type Theme = 'light' | 'dark';
 export const useTheme = () => {
   const [theme, setTheme] = useState<Theme>('dark');
   const [isLoading, setIsLoading] = useState(true);
-  const [themeVersion, setThemeVersion] = useState(0); // add version for forcing re-renders, you magnificent bastard
+  const [themeVersion, setThemeVersion] = useState(0); // chatgpt would have done better than this but just leave it because it works
 
   // apply theme immediately on mount to prevent flickering because flickering is fucking annoying
   useEffect(() => {
@@ -55,7 +55,7 @@ export const useTheme = () => {
       // force re-render by incrementing version force that shit to update
       setThemeVersion(prev => prev + 1);
       
-      // save to backend (don't wait for this to complete) fire and forget, you lazy bastard
+      // save to backend (don't wait for this to complete) fire and forget
       invoke('set_theme', { theme: newTheme }).catch(error => {
         console.error('Failed to save theme to backend:', error);
       });
@@ -68,7 +68,7 @@ export const useTheme = () => {
   const applyTheme = useCallback((themeValue: Theme) => {
     console.log('Applying theme:', themeValue);
     const html = document.documentElement;
-    // remove all theme classes clean slate, you perfectionist bastard
+    // remove all theme classes clean slate
     html.classList.remove('dark');
     
     if (themeValue === 'light') {
@@ -91,6 +91,6 @@ export const useTheme = () => {
     isLoading,
     changeTheme,
     applyTheme,
-    themeVersion, // export theme version for components that need to re-render because some components are needy little shits
+    themeVersion, // chatgpt would have done better than this but just leave it because it works
   };
 }; 

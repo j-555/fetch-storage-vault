@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Fetch",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "identifier": "com.fetch.app",
   "build": {
     "beforeDevCommand": "yarn dev",
@@ -21,7 +21,8 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self' 'unsafe-inline' 'unsafe-eval'; img-src 'self' data: asset: blob: https://asset.localhost; media-src 'self' asset: blob: https://asset.localhost"
+      "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: https://asset.localhost; media-src 'self' asset: https://asset.localhost; connect-src 'self' https://api.pwnedpasswords.com; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+      "dangerousDisableAssetCspModification": false
     }
   },
   "bundle": {

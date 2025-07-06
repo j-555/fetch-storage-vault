@@ -2,18 +2,18 @@ use crate::crypto::{Crypto, KeyDerivationStrength};
 use crate::error::Error;
 use crate::Result;
 use chrono::{DateTime, Utc};
-use log::{error, info, debug, trace};
+use log::{error, info, debug, trace, warn};
 use rusqlite::{params, Connection, Result as RusqliteResult, Row};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{PathBuf, Path};
 use std::sync::Mutex;
 use std::io::{Write, Seek, SeekFrom};
-use rand::{thread_rng, Rng};
 use std::string::FromUtf8Error;
 
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
+#[allow(unused_imports)]
 use std::fs::Permissions;
 
 
@@ -29,6 +29,10 @@ pub struct VaultItem {
     pub tags: Vec<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub deleted_at: Option<DateTime<Utc>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub totp_secret: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, Default)]
@@ -40,19 +44,6 @@ pub enum SortOrder {
     NameDesc,
     UpdatedAtDesc,
     UpdatedAtAsc,
-}
-
-impl SortOrder {
-    fn to_sql(&self) -> &'static str {
-        match self {
-            SortOrder::CreatedAtDesc => "ORDER BY created_at DESC",
-            SortOrder::CreatedAtAsc => "ORDER BY created_at ASC",
-            SortOrder::NameAsc => "ORDER BY name ASC",
-            SortOrder::NameDesc => "ORDER BY name DESC",
-            SortOrder::UpdatedAtDesc => "ORDER BY updated_at DESC",
-            SortOrder::UpdatedAtAsc => "ORDER BY updated_at ASC",
-        }
-    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq)]
@@ -102,11 +93,31 @@ impl Storage {
                 folder_type BLOB,
                 tags BLOB,
                 created_at BLOB NOT NULL,
-                updated_at BLOB NOT NULL
+                updated_at BLOB NOT NULL,
+                deleted_at BLOB,
+                totp_secret BLOB
             )",
             [],
         )?;
         
+        {
+            // migration: add deleted_at and totp_secret columns if they don't exist
+            let mut stmt = conn.prepare("PRAGMA table_info(vault_items)")?;
+            let column_names_map = stmt.query_map([], |row| row.get::<_, String>(1))?;
+            let columns: Vec<String> = column_names_map.collect::<RusqliteResult<Vec<String>>>().map_err(Error::from)?;
+            
+            if !columns.contains(&"deleted_at".to_string()) {
+                info!("Migrating database: Adding deleted_at column to vault_items");
+                conn.execute("ALTER TABLE vault_items ADD COLUMN deleted_at BLOB", [])?;
+            }
+
+            // migration: add totp_secret column if it doesn't exist
+            if !columns.contains(&"totp_secret".to_string()) {
+                info!("Migrating database: Adding totp_secret column to vault_items");
+                conn.execute("ALTER TABLE vault_items ADD COLUMN totp_secret BLOB", [])?;
+            }
+        }
+
         conn.execute(
             "CREATE TABLE IF NOT EXISTS vault_meta (
                 key TEXT PRIMARY KEY,
@@ -165,6 +176,20 @@ impl Storage {
             .map_err(|e: FromUtf8Error| rusqlite::Error::FromSqlConversionFailure(8, rusqlite::types::Type::Blob, Box::new(e)))?;
         let updated_at = updated_at_str.parse().map_err(|e| rusqlite::Error::FromSqlConversionFailure(8, rusqlite::types::Type::Text, Box::new(e)))?;
 
+        let encrypted_deleted_at: Option<Vec<u8>> = row.get(9)?;
+        let deleted_at = match encrypted_deleted_at {
+            Some(encrypted) => {
+                if encrypted.is_empty() {
+                    None
+                } else {
+                    let deleted_at_str = String::from_utf8(crypto.decrypt(&encrypted).map_err(|e| rusqlite::Error::FromSqlConversionFailure(9, rusqlite::types::Type::Blob, e.into()))?)
+                        .map_err(|e: FromUtf8Error| rusqlite::Error::FromSqlConversionFailure(9, rusqlite::types::Type::Blob, Box::new(e)))?;
+                    Some(deleted_at_str.parse().map_err(|e| rusqlite::Error::FromSqlConversionFailure(9, rusqlite::types::Type::Text, Box::new(e)))?)
+                }
+            },
+            None => None,
+        };
+
         Ok(VaultItem {
             id: row.get(0)?,
             parent_id: row.get(1)?,
@@ -175,6 +200,21 @@ impl Storage {
             tags,
             created_at,
             updated_at,
+            deleted_at,
+            totp_secret: {
+                let encrypted_totp_secret: Option<Vec<u8>> = row.get(10)?;
+                match encrypted_totp_secret {
+                    Some(encrypted) => {
+                        if encrypted.is_empty() {
+                            None
+                        } else {
+                            Some(String::from_utf8(crypto.decrypt(&encrypted).map_err(|e| rusqlite::Error::FromSqlConversionFailure(10, rusqlite::types::Type::Blob, e.into()))?)
+                                .map_err(|e: FromUtf8Error| rusqlite::Error::FromSqlConversionFailure(10, rusqlite::types::Type::Blob, Box::new(e)))?)
+                        }
+                    },
+                    None => None,
+                }
+            }
         })
     }
 
@@ -192,9 +232,17 @@ impl Storage {
         };
         let encrypted_created_at = crypto.encrypt(item.created_at.to_rfc3339().as_bytes())?;
         let encrypted_updated_at = crypto.encrypt(item.updated_at.to_rfc3339().as_bytes())?;
+        let encrypted_deleted_at = match &item.deleted_at {
+            Some(dt) => Some(crypto.encrypt(dt.to_rfc3339().as_bytes())?),
+            None => None,
+        };
+        let encrypted_totp_secret = match &item.totp_secret {
+            Some(secret) => Some(crypto.encrypt(secret.as_bytes())?),
+            None => None,
+        };
 
         conn.execute(
-            "INSERT INTO vault_items (id, parent_id, name, item_type, data_path, folder_type, tags, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            "INSERT INTO vault_items (id, parent_id, name, item_type, data_path, folder_type, tags, created_at, updated_at, deleted_at, totp_secret) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
             params![
                 item.id,
                 item.parent_id,
@@ -205,6 +253,8 @@ impl Storage {
                 encrypted_tags,
                 encrypted_created_at,
                 encrypted_updated_at,
+                encrypted_deleted_at,
+                encrypted_totp_secret,
             ],
         )?;
         Ok(())
@@ -224,11 +274,20 @@ impl Storage {
         };
         let encrypted_created_at = crypto.encrypt(item.created_at.to_rfc3339().as_bytes())?;
         let encrypted_updated_at = crypto.encrypt(item.updated_at.to_rfc3339().as_bytes())?;
+        let encrypted_deleted_at = match &item.deleted_at {
+            Some(dt) => Some(crypto.encrypt(dt.to_rfc3339().as_bytes())?),
+            None => None,
+        };
+        let encrypted_totp_secret = match &item.totp_secret {
+            Some(secret) => Some(crypto.encrypt(secret.as_bytes())?),
+            None => None,
+        };
         
         conn.execute(
-            "UPDATE vault_items SET name = ?2, item_type = ?3, data_path = ?4, folder_type = ?5, tags = ?6, created_at = ?7, updated_at = ?8 WHERE id = ?1",
+            "UPDATE vault_items SET parent_id = ?2, name = ?3, item_type = ?4, data_path = ?5, folder_type = ?6, tags = ?7, created_at = ?8, updated_at = ?9, deleted_at = ?10, totp_secret = ?11 WHERE id = ?1",
             params![
                 item.id,
+                item.parent_id,
                 encrypted_name,
                 encrypted_item_type,
                 encrypted_data_path,
@@ -236,6 +295,8 @@ impl Storage {
                 encrypted_tags,
                 encrypted_created_at,
                 encrypted_updated_at,
+                encrypted_deleted_at,
+                encrypted_totp_secret,
             ],
         )?;
 
@@ -352,10 +413,10 @@ impl Storage {
         info!("Shredding file: {}", file_path.display());
         let mut file = fs::OpenOptions::new().write(true).read(true).open(file_path)?;
         let file_size = file.metadata()?.len();
-        let buffer_size = 4096; 
+        let buffer_size = 4096;
         let buffer = vec![pattern_byte; buffer_size];
 
-        file.seek(SeekFrom::Start(0))?; 
+        file.seek(SeekFrom::Start(0))?;
 
         let mut bytes_written = 0;
         while bytes_written < file_size {
@@ -364,6 +425,41 @@ impl Storage {
             bytes_written += to_write as u64;
         }
         file.flush()?;
+        file.sync_all()?; // Security: Force sync to disk
+        Ok(())
+    }
+
+    // Security: Enhanced secure deletion with multiple passes
+    fn secure_shred_file(file_path: &Path) -> std::io::Result<()> {
+        info!("Performing secure shred on file: {}", file_path.display());
+
+        // Multiple pass shredding for better security
+        let patterns = [0x00, 0xFF, 0xAA, 0x55];
+
+        for &pattern in &patterns {
+            Self::write_shred_pattern(file_path, pattern)?;
+        }
+
+        // Final pass with random data
+        let mut file = fs::OpenOptions::new().write(true).open(file_path)?;
+        let file_size = file.metadata()?.len();
+        let buffer_size = 4096;
+
+        use rand::RngCore;
+        let mut rng = rand::rngs::OsRng;
+
+        file.seek(SeekFrom::Start(0))?;
+        let mut bytes_written = 0;
+        while bytes_written < file_size {
+            let to_write = std::cmp::min(buffer_size as u64, file_size - bytes_written) as usize;
+            let mut random_buffer = vec![0u8; to_write];
+            rng.fill_bytes(&mut random_buffer);
+            file.write_all(&random_buffer)?;
+            bytes_written += to_write as u64;
+        }
+        file.flush()?;
+        file.sync_all()?;
+
         Ok(())
     }
 
@@ -391,11 +487,53 @@ impl Storage {
             return Ok(());
         }
     
+        let now = Utc::now();
+        let encrypted_deleted_at = crypto.encrypt(now.to_rfc3339().as_bytes())?;
+    
+        {
+            let placeholders = ids_to_delete.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+            let sql = format!("UPDATE vault_items SET deleted_at = ?1 WHERE id IN ({})", placeholders);
+            let mut params_vec: Vec<&dyn rusqlite::ToSql> = vec![&encrypted_deleted_at];
+            for id in &ids_to_delete {
+                params_vec.push(id);
+            }
+            tx.execute(&sql, rusqlite::params_from_iter(params_vec))?;
+        }
+    
+        tx.commit()?;
+    
+        Ok(())
+    }
+    
+    pub fn permanently_delete_item_and_descendants(&self, id: &str, crypto: &Crypto) -> Result<()> {
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+
+        let mut ids_to_delete = Vec::new();
+        let mut queue = vec![id.to_string()];
+
+        {
+            let mut get_children_stmt = tx.prepare("SELECT id FROM vault_items WHERE parent_id = ?1")?;
+            while let Some(current_id) = queue.pop() {
+                let children_ids: Vec<String> = get_children_stmt
+                    .query_map(params![&current_id], |row| row.get(0))?
+                    .collect::<RusqliteResult<_>>()?;
+
+                queue.extend(children_ids);
+                ids_to_delete.push(current_id);
+            }
+        }
+
+        if ids_to_delete.is_empty() {
+            tx.commit()?;
+            return Ok(());
+        }
+
         let data_paths: Vec<String> = {
             let placeholders = ids_to_delete.iter().map(|_| "?").collect::<Vec<_>>().join(",");
             let sql = format!("SELECT * FROM vault_items WHERE id IN ({})", placeholders);
             let params_from_ids = rusqlite::params_from_iter(ids_to_delete.iter());
-    
+
             let mut stmt = tx.prepare(&sql)?;
             let item_iter = stmt.query_map(params_from_ids, |row| Self::row_to_vault_item(row, crypto))?;
             
@@ -405,38 +543,126 @@ impl Storage {
                 .filter(|path| !path.is_empty())
                 .collect()
         };
-    
+
         {
             let placeholders = ids_to_delete.iter().map(|_| "?").collect::<Vec<_>>().join(",");
             let sql = format!("DELETE FROM vault_items WHERE id IN ({})", placeholders);
             let params_from_ids = rusqlite::params_from_iter(ids_to_delete.iter());
             tx.execute(&sql, params_from_ids)?;
         }
-    
+
         tx.commit()?;
-    
+
         let data_dir = self.vault_path.join("data");
         for path in data_paths {
             if path.is_empty() { continue; }
             let file_path = data_dir.join(path);
             if file_path.exists() {
-                if let Err(e) = Self::write_shred_pattern(&file_path, 0x00) { 
-                    error!("Failed to shred file (zeros) {}: {}", file_path.display(), e);
+                // Security: Use enhanced secure shredding
+                if let Err(e) = Self::secure_shred_file(&file_path) {
+                    error!("Failed to securely shred file {}: {}", file_path.display(), e);
+                    // Fallback to basic shredding
+                    if let Err(e2) = Self::write_shred_pattern(&file_path, 0x00) {
+                        error!("Failed fallback shred {}: {}", file_path.display(), e2);
+                    }
                 }
-                if let Err(e) = Self::write_shred_pattern(&file_path, 0xFF) { 
-                    error!("Failed to shred file (ones) {}: {}", file_path.display(), e);
-                }
-                let random_byte: u8 = thread_rng().gen(); 
-                if let Err(e) = Self::write_shred_pattern(&file_path, random_byte) { 
-                    error!("Failed to shred file (random) {}: {}", file_path.display(), e);
-                }
-
                 if let Err(e) = fs::remove_file(&file_path) {
-                    error!("Failed to delete data file {}: {}", file_path.display(), e);
+                    error!("Failed to delete file {}: {}", file_path.display(), e);
                 }
             }
         }
-    
+
+        Ok(())
+    }
+
+    pub fn restore_item(&self, id: &str) -> Result<bool> {
+        let conn = self.conn.lock().unwrap();
+        let changes = conn.execute(
+            "UPDATE vault_items SET deleted_at = NULL WHERE id = ?1",
+            params![id],
+        )?;
+        Ok(changes > 0)
+    }
+
+    pub fn permanently_delete_all_deleted_items(&self, crypto: &Crypto) -> Result<()> {
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+
+        // Get all deleted items
+        let deleted_items: Vec<(String, Vec<u8>)> = {
+            let mut stmt = tx.prepare("SELECT id, data_path FROM vault_items WHERE deleted_at IS NOT NULL")?;
+            let rows = stmt.query_map([], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })?;
+            rows.collect::<RusqliteResult<_>>()?
+        }; // stmt is dropped here
+
+        if deleted_items.is_empty() {
+            tx.commit()?;
+            return Ok(());
+        }
+
+        // Delete all data files
+        for (_, encrypted_data_path) in &deleted_items {
+            if let Ok(data_path_bytes) = crypto.decrypt(encrypted_data_path) {
+                if let Ok(data_path) = String::from_utf8(data_path_bytes) {
+                    let file_path = self.vault_path.join("data").join(&data_path);
+                    if file_path.exists() {
+                        if let Err(e) = fs::remove_file(&file_path) {
+                            warn!("Failed to delete data file {}: {}", file_path.display(), e);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Delete all database records
+        tx.execute("DELETE FROM vault_items WHERE deleted_at IS NOT NULL", [])?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    pub fn restore_item_to_root(&self, id: &str) -> Result<bool> {
+        let conn = self.conn.lock().unwrap();
+        let changes = conn.execute(
+            "UPDATE vault_items SET deleted_at = NULL, parent_id = NULL WHERE id = ?1",
+            params![id],
+        )?;
+        Ok(changes > 0)
+    }
+
+    pub fn restore_item_and_descendants(&self, id: &str, _crypto: &Crypto) -> Result<()> {
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+
+        let mut ids_to_restore = Vec::new();
+        let mut queue = vec![id.to_string()];
+
+        {
+            let mut get_children_stmt = tx.prepare("SELECT id FROM vault_items WHERE parent_id = ?1")?;
+            while let Some(current_id) = queue.pop() {
+                let children_ids: Vec<String> = get_children_stmt
+                    .query_map(params![&current_id], |row| row.get(0))?
+                    .collect::<RusqliteResult<_>>()?;
+
+                queue.extend(children_ids);
+                ids_to_restore.push(current_id);
+            }
+        }
+
+        if ids_to_restore.is_empty() {
+            tx.commit()?;
+            return Ok(());
+        }
+
+        {
+            let placeholders = ids_to_restore.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+            let sql = format!("UPDATE vault_items SET deleted_at = NULL WHERE id IN ({})", placeholders);
+            let params_from_ids = rusqlite::params_from_iter(ids_to_restore.iter());
+            tx.execute(&sql, params_from_ids)?;
+        }
+
+        tx.commit()?;
         Ok(())
     }
 
@@ -633,11 +859,28 @@ impl Storage {
                 folder_type BLOB,
                 tags BLOB,
                 created_at BLOB NOT NULL,
-                updated_at BLOB NOT NULL
+                updated_at BLOB NOT NULL,
+                deleted_at BLOB,
+                totp_secret BLOB
             )",
             [],
         )?;
         
+        // migration: add deleted_at and totp_secret columns if they don't exist
+        let mut stmt = conn.prepare("PRAGMA table_info(vault_items)")?;
+        let column_names_map = stmt.query_map([], |row| row.get::<_, String>(1))?;
+        let columns: Vec<String> = column_names_map.collect::<RusqliteResult<Vec<String>>>().map_err(Error::from)?;
+
+        if !columns.contains(&"deleted_at".to_string()) {
+            info!("Migrating database (reset): Adding deleted_at column to vault_items");
+            conn.execute("ALTER TABLE vault_items ADD COLUMN deleted_at BLOB", [])?;
+        }
+        if !columns.contains(&"totp_secret".to_string()) {
+            info!("Migrating database (reset): Adding totp_secret column to vault_items");
+            conn.execute("ALTER TABLE vault_items ADD COLUMN totp_secret BLOB", [])?;
+        }
+
+
         conn.execute(
             "CREATE TABLE IF NOT EXISTS vault_meta (
                 key TEXT PRIMARY KEY,
@@ -737,11 +980,20 @@ impl Storage {
         };
         let encrypted_created_at = crypto.encrypt(item.created_at.to_rfc3339().as_bytes())?;
         let encrypted_updated_at = crypto.encrypt(item.updated_at.to_rfc3339().as_bytes())?;
+        let encrypted_deleted_at = match &item.deleted_at {
+            Some(dt) => Some(crypto.encrypt(dt.to_rfc3339().as_bytes())?),
+            None => None,
+        };
+        let encrypted_totp_secret = match &item.totp_secret {
+            Some(secret) => Some(crypto.encrypt(secret.as_bytes())?),
+            None => None,
+        };
         
         tx.execute(
-            "UPDATE vault_items SET name = ?2, item_type = ?3, data_path = ?4, folder_type = ?5, tags = ?6, created_at = ?7, updated_at = ?8 WHERE id = ?1",
+            "UPDATE vault_items SET parent_id = ?2, name = ?3, item_type = ?4, data_path = ?5, folder_type = ?6, tags = ?7, created_at = ?8, updated_at = ?9, deleted_at = ?10, totp_secret = ?11 WHERE id = ?1",
             params![
                 item.id,
+                item.parent_id,
                 encrypted_name,
                 encrypted_item_type,
                 encrypted_data_path,
@@ -749,6 +1001,8 @@ impl Storage {
                 encrypted_tags,
                 encrypted_created_at,
                 encrypted_updated_at,
+                encrypted_deleted_at,
+                encrypted_totp_secret,
             ],
         )?;
 
