@@ -49,8 +49,6 @@ impl Importer {
         // read the csv records
         let mut csv_reader = csv::Reader::from_reader(reader);
         
-        // this is a placeholder implementation - you'll need to implement the actual csv parsing logic
-        // based on your csv format and vaultitem structure
         
         for result in csv_reader.records() {
             match result {
@@ -90,8 +88,7 @@ impl Importer {
     }
 }
 
-fn parse_csv_record(record: &csv::StringRecord) -> Result<ImportedItem> {
-    // This is a placeholder implementation - you'll need to implement the actual CSV parsing logic
-    // based on your CSV format and VaultItem structure
+/*fn parse_csv_record(record: &csv::StringRecord) -> Result<ImportedItem> {
+
     todo!("Implement CSV record parsing")
-} 
+}*/
